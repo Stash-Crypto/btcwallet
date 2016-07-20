@@ -107,6 +107,10 @@ func noConsole() ([]byte, error) {
 	return nil, errNoConsole
 }
 
+func defaultPassword() ([]byte, error) {
+	return []byte(InsecurePrivPassphrase), nil
+}
+
 // OpenExistingWallet opens the wallet from the loader's wallet database path
 // and the public passphrase.  If the loader is being called by a context where
 // standard input prompts may be used during wallet upgrades, setting
@@ -133,7 +137,7 @@ func (l *Loader) OpenExistingWallet(pubPassphrase []byte, canConsolePrompt bool)
 	} else {
 		cbs = &waddrmgr.OpenCallbacks{
 			ObtainSeed:        noConsole,
-			ObtainPrivatePass: noConsole,
+			ObtainPrivatePass: defaultPassword,
 		}
 	}
 	w, err := Open(l.db, pubPassphrase, cbs, l.chainParams)
