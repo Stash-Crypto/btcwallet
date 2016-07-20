@@ -47,8 +47,6 @@ type config struct {
 	// General application behavior
 	ConfigFile    *cfgutil.ExplicitString `short:"C" long:"configfile" description:"Path to configuration file"`
 	ShowVersion   bool                    `short:"V" long:"version" description:"Display version information and exit"`
-	Create        bool                    `long:"create" description:"Create the wallet if it does not exist"`
-	CreateTemp    bool                    `long:"createtemp" description:"Create a temporary simulation wallet (pass=password) in the data directory indicated; must call with --datadir"`
 	AppDataDir    *cfgutil.ExplicitString `short:"A" long:"appdata" description:"Application data directory for wallet config, databases and logs"`
 	TestNet3      bool                    `long:"testnet" description:"Use the test Bitcoin network (version 3) (default mainnet)"`
 	SimNet        bool                    `long:"simnet" description:"Use the simulation test network (default mainnet)"`
@@ -56,9 +54,13 @@ type config struct {
 	DebugLevel    string                  `short:"d" long:"debuglevel" description:"Logging level {trace, debug, info, warn, error, critical}"`
 	LogDir        string                  `long:"logdir" description:"Directory to log output."`
 	Profile       string                  `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
-
+	
 	// Wallet options
-	WalletPass string `long:"walletpass" default-mask:"-" description:"The public wallet password -- Only required if the wallet was created with one"`
+	WalletPass string  `long:"walletpass" default-mask:"-" description:"The public wallet password -- Only required if the wallet was created with one"`
+	Create     bool    `long:"create" description:"Create the wallet if it does not exist"`
+	CreateTemp bool    `long:"createtemp" description:"Create a temporary simulation wallet (pass=password) in the data directory indicated; must call with --datadir"`
+	Seed       *string `long:"seed" description:"The seed for a new wallet."`
+	NoPass     bool    `long:"nopass" description:"If this option is set, the wallet is stored unencrypted."`
 
 	// RPC client options
 	RPCConnect       string                  `short:"c" long:"rpcconnect" description:"Hostname/IP and port of btcd RPC server to connect to (default localhost:8334, testnet: localhost:18334, simnet: localhost:18556)"`
@@ -421,6 +423,13 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
+	if cfg.NoPass && !cfg.Create { 
+		// Cannot use nopass option except with create. 
+		err = fmt.Errorf("Cannot use --nopass except with --create")
+		fmt.Fprintln(os.Stderr, err)
+		return nil, nil, err
+	}
+
 	if cfg.CreateTemp {
 		tempWalletExists := false
 
@@ -484,7 +493,7 @@ func loadConfig() (*config, []string, error) {
 		}
 		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
-	}
+	} 
 
 	if cfg.RPCConnect == "" {
 		cfg.RPCConnect = net.JoinHostPort("localhost", activeNet.RPCClientPort)
