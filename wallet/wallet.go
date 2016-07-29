@@ -949,6 +949,84 @@ outputs:
 	return results
 }
 
+func (w *Wallet) FundTransaction(
+	account uint32,
+	targetAmount int64,
+	requiredConfirmations int32,
+	includeImmatureCoinbases bool,
+	includeChangeScript bool,
+	pred func(wtxmgr.Credit) bool) ([]wtxmgr.Credit, btcutil.Amount, []byte, error) {
+
+	// TODO: A predicate function for selecting outputs should be created
+	// and passed to a database view of just a particular account's utxos to
+	// prevent reading every unspent transaction output from every account
+	// into memory at once.
+
+	syncBlock := w.Manager.SyncedTo()
+
+	outputs, err := w.TxStore.UnspentOutputs()
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	selectedOutputs := make([]wtxmgr.Credit, 0, len(outputs))
+	var totalAmount btcutil.Amount
+	for i := range outputs {
+		output := outputs[i]
+
+		if !confirmed(requiredConfirmations, output.Height, syncBlock.Height) {
+			continue
+		}
+		target := int32(w.ChainParams().CoinbaseMaturity)
+		if !includeImmatureCoinbases && output.FromCoinBase &&
+			!confirmed(target, output.Height, syncBlock.Height) {
+			continue
+		}
+
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			output.PkScript, w.ChainParams())
+		if err != nil || len(addrs) == 0 {
+			// Cannot determine which account this belongs to
+			// without a valid address.  Fix this by saving
+			// outputs per account (per-account wtxmgr).
+			continue
+		}
+		outputAcct, err := w.Manager.AddrAccount(addrs[0])
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		if outputAcct != account {
+			continue
+		}
+
+		if pred != nil && !pred(output) {
+			continue
+		}
+
+		selectedOutputs = append(selectedOutputs, output)
+		totalAmount += output.Amount
+
+		if targetAmount != 0 && totalAmount > btcutil.Amount(targetAmount) {
+			break
+		}
+
+	}
+
+	var changeScript []byte
+	if includeChangeScript && totalAmount > btcutil.Amount(targetAmount) {
+		changeAddr, err := w.NewChangeAddress(account)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		changeScript, err = txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+	}
+
+	return selectedOutputs, totalAmount, changeScript, nil
+}
+
 // ListSinceBlock returns a slice of objects with details about transactions
 // since the given block. If the block is -1 then all transactions are included.
 // This is intended to be used for listsinceblock RPC replies.

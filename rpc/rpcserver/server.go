@@ -320,47 +320,21 @@ func confirms(txHeight, curHeight int32) int32 {
 func (s *walletServer) FundTransaction(ctx context.Context, req *pb.FundTransactionRequest) (
 	*pb.FundTransactionResponse, error) {
 
-	// TODO: A predicate function for selecting outputs should be created
-	// and passed to a database view of just a particular account's utxos to
-	// prevent reading every unspent transaction output from every account
-	// into memory at once.
+	outputs, totalAmount, changeScript, err := s.wallet.FundTransaction(
+		req.Account,
+		req.TargetAmount,
+		req.RequiredConfirmations,
+		req.IncludeImmatureCoinbases,
+		req.IncludeChangeScript,
+		nil)
 
-	syncBlock := s.wallet.Manager.SyncedTo()
-
-	outputs, err := s.wallet.TxStore.UnspentOutputs()
 	if err != nil {
 		return nil, translateError(err)
 	}
 
 	selectedOutputs := make([]*pb.FundTransactionResponse_PreviousOutput, 0, len(outputs))
-	var totalAmount btcutil.Amount
 	for i := range outputs {
 		output := &outputs[i]
-
-		if !confirmed(req.RequiredConfirmations, output.Height, syncBlock.Height) {
-			continue
-		}
-		target := int32(s.wallet.ChainParams().CoinbaseMaturity)
-		if !req.IncludeImmatureCoinbases && output.FromCoinBase &&
-			!confirmed(target, output.Height, syncBlock.Height) {
-			continue
-		}
-
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			output.PkScript, s.wallet.ChainParams())
-		if err != nil || len(addrs) == 0 {
-			// Cannot determine which account this belongs to
-			// without a valid address.  Fix this by saving
-			// outputs per account (per-account wtxmgr).
-			continue
-		}
-		outputAcct, err := s.wallet.Manager.AddrAccount(addrs[0])
-		if err != nil {
-			return nil, translateError(err)
-		}
-		if outputAcct != req.Account {
-			continue
-		}
 
 		selectedOutputs = append(selectedOutputs, &pb.FundTransactionResponse_PreviousOutput{
 			TransactionHash: output.OutPoint.Hash[:],
@@ -370,24 +344,6 @@ func (s *walletServer) FundTransaction(ctx context.Context, req *pb.FundTransact
 			ReceiveTime:     output.Received.Unix(),
 			FromCoinbase:    output.FromCoinBase,
 		})
-		totalAmount += output.Amount
-
-		if req.TargetAmount != 0 && totalAmount > btcutil.Amount(req.TargetAmount) {
-			break
-		}
-
-	}
-
-	var changeScript []byte
-	if req.IncludeChangeScript && totalAmount > btcutil.Amount(req.TargetAmount) {
-		changeAddr, err := s.wallet.NewChangeAddress(req.Account)
-		if err != nil {
-			return nil, translateError(err)
-		}
-		changeScript, err = txscript.PayToAddrScript(changeAddr)
-		if err != nil {
-			return nil, translateError(err)
-		}
 	}
 
 	return &pb.FundTransactionResponse{
