@@ -952,6 +952,8 @@ outputs:
 	return results
 }
 
+// FundTransaction finds eligable outputs for a transaction and includes
+// a change script if requested.
 func (w *Wallet) FundTransaction(
 	account uint32,
 	targetAmount int64,
@@ -959,62 +961,24 @@ func (w *Wallet) FundTransaction(
 	includeImmatureCoinbases bool,
 	includeChangeScript bool,
 	pred func(wtxmgr.Credit) bool) ([]wtxmgr.Credit, btcutil.Amount, []byte, error) {
+		
+	// We cannot automatically generate a change output if we are funding
+	// from the imported account. 
+	if includeChangeScript && account == waddrmgr.ImportedAddrAccount {
+		return nil, 0, nil, errors.New("Cannot automatically generate change output with imported account.")
+	}
 
-	// TODO: A predicate function for selecting outputs should be created
-	// and passed to a database view of just a particular account's utxos to
-	// prevent reading every unspent transaction output from every account
-	// into memory at once.
+	bs := w.Manager.SyncedTo()
 
-	syncBlock := w.Manager.SyncedTo()
+	selectedOutputs, totalAmount, err := w.findEligibleOutputs(
+		account, targetAmount, requiredConfirmations, includeImmatureCoinbases,
+		&bs, pred)
 
-	outputs, err := w.TxStore.UnspentOutputs()
 	if err != nil {
 		return nil, 0, nil, err
 	}
-
-	selectedOutputs := make([]wtxmgr.Credit, 0, len(outputs))
-	var totalAmount btcutil.Amount
-	for i := range outputs {
-		output := outputs[i]
-
-		if !confirmed(requiredConfirmations, output.Height, syncBlock.Height) {
-			continue
-		}
-		target := int32(w.ChainParams().CoinbaseMaturity)
-		if !includeImmatureCoinbases && output.FromCoinBase &&
-			!confirmed(target, output.Height, syncBlock.Height) {
-			continue
-		}
-
-		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
-			output.PkScript, w.ChainParams())
-		if err != nil || len(addrs) == 0 {
-			// Cannot determine which account this belongs to
-			// without a valid address.  Fix this by saving
-			// outputs per account (per-account wtxmgr).
-			continue
-		}
-		outputAcct, err := w.Manager.AddrAccount(addrs[0])
-		if err != nil {
-			return nil, 0, nil, err
-		}
-		if outputAcct != account {
-			continue
-		}
-
-		if pred != nil && !pred(output) {
-			continue
-		}
-
-		selectedOutputs = append(selectedOutputs, output)
-		totalAmount += output.Amount
-
-		if targetAmount != 0 && totalAmount > btcutil.Amount(targetAmount) {
-			break
-		}
-
-	}
-
+	
+	// Add change script if desired.
 	var changeScript []byte
 	if includeChangeScript && totalAmount > btcutil.Amount(targetAmount) {
 		changeAddr, err := w.NewChangeAddress(account)

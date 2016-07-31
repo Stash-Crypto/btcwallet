@@ -113,12 +113,18 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32, minconf int3
 		return nil, err
 	}
 
-	eligible, err := w.findEligibleOutputs(account, minconf, bs)
-	if err != nil {
-		return nil, err
+	var inputSource txauthor.InputSource
+	if redeem != nil {
+		inputSource = makeInputSource(redeem)
+	} else {
+		eligible, _, err := w.findEligibleOutputs(account, 0, minconf, false, bs, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		inputSource = makeInputSource(eligible)
 	}
 
-	inputSource := makeInputSource(eligible)
 	changeSource := func() ([]byte, error) {
 		// Derive the change output script.  As a hack to allow spending from
 		// the imported account, change addresses are created from account 0.
@@ -165,18 +171,31 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32, minconf int3
 	return tx, nil
 }
 
-func (w *Wallet) findEligibleOutputs(account uint32, minconf int32, bs *waddrmgr.BlockStamp) ([]wtxmgr.Credit, error) {
+func (w *Wallet) findEligibleOutputs(
+	account uint32,
+	// Optional target amount to spend (ignored if zero).
+	targetAmount int64,
+	minconf int32,
+	includeImmatureCoinbases bool,
+	bs *waddrmgr.BlockStamp,
+	// Optional predicate for filtering outputs.
+	pred func(wtxmgr.Credit) bool) (
+	[]wtxmgr.Credit, btcutil.Amount, error) {
+
 	unspent, err := w.TxStore.UnspentOutputs()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// TODO: Eventually all of these filters (except perhaps output locking)
-	// should be handled by the call to UnspentOutputs (or similar).
+	// should be handled by the call to UnspentOutputs (or similar) to
+	// prevent reading every unspent transaction output from every account
+	// into memory at once.
 	// Because one of these filters requires matching the output script to
 	// the desired account, this change depends on making wtxmgr a waddrmgr
 	// dependancy and requesting unspent outputs for a single account.
 	eligible := make([]wtxmgr.Credit, 0, len(unspent))
+	var totalAmount btcutil.Amount
 	for i := range unspent {
 		output := &unspent[i]
 
@@ -186,7 +205,8 @@ func (w *Wallet) findEligibleOutputs(account uint32, minconf int32, bs *waddrmgr
 		if !confirmed(minconf, output.Height, bs.Height) {
 			continue
 		}
-		if output.FromCoinBase {
+		
+		if output.FromCoinBase && !includeImmatureCoinbases {
 			target := int32(w.chainParams.CoinbaseMaturity)
 			if !confirmed(target, output.Height, bs.Height) {
 				continue
@@ -206,6 +226,9 @@ func (w *Wallet) findEligibleOutputs(account uint32, minconf int32, bs *waddrmgr
 		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
 			output.PkScript, w.chainParams)
 		if err != nil || len(addrs) != 1 {
+			// Cannot determine which account this belongs to
+			// without a valid address.  Fix this by saving
+			// outputs per account (per-account wtxmgr).
 			continue
 		}
 		addrAcct, err := w.Manager.AddrAccount(addrs[0])
@@ -213,9 +236,20 @@ func (w *Wallet) findEligibleOutputs(account uint32, minconf int32, bs *waddrmgr
 			continue
 		}
 
+		// If a predicate was included, test the output against it.
+		if pred != nil && !pred(*output) {
+			continue
+		}
+
 		eligible = append(eligible, *output)
+		totalAmount += output.Amount
+
+		if targetAmount != 0 && totalAmount > btcutil.Amount(targetAmount) {
+			break
+		}
 	}
-	return eligible, nil
+
+	return eligible, totalAmount, nil
 }
 
 // validateMsgTx verifies transaction input scripts for tx.  All previous output
