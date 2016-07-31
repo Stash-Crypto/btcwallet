@@ -88,11 +88,14 @@ func (s secretSource) GetScript(addr btcutil.Address) ([]byte, error) {
 }
 
 // txToOutputs creates a signed transaction which includes each output from
-// outputs.  Previous outputs to reedeem are chosen from the passed account's
-// UTXO set and minconf policy. An additional output may be added to return
-// change to the wallet.  An appropriate fee is included based on the wallet's
-// current relay fee.  The wallet must be unlocked to create the transaction.
-func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32, minconf int32) (*txauthor.AuthoredTx, error) {
+// outputs.  Previous outputs to redeem are chosen from the passed account's
+// UTXO set and minconf policy, or they can optionally be provided by the caller.
+// An additional output may be added to return change to the wallet.  An
+// appropriate fee is included based on the wallet's current relay fee.  The
+// wallet must be unlocked to create the transaction.
+func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
+	minconf int32, redeem []wtxmgr.Credit) (*txauthor.AuthoredTx, error) {
+
 	// Address manager must be unlocked to compose transaction.  Grab
 	// the unlock if possible (to prevent future unlocks), or return the
 	// error if already locked.
