@@ -411,6 +411,7 @@ type (
 		account uint32
 		outputs []*wire.TxOut
 		minconf int32
+		redeem  []wtxmgr.Credit
 		resp    chan createTxResponse
 	}
 	createTxResponse struct {
@@ -435,7 +436,7 @@ out:
 	for {
 		select {
 		case txr := <-w.createTxRequests:
-			tx, err := w.txToOutputs(txr.outputs, txr.account, txr.minconf)
+			tx, err := w.txToOutputs(txr.outputs, txr.account, txr.minconf, txr.redeem)
 			txr.resp <- createTxResponse{tx, err}
 
 		case <-quit:
