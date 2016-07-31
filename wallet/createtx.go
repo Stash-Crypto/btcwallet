@@ -208,7 +208,7 @@ func (w *Wallet) findEligibleOutputs(
 		if !confirmed(minconf, output.Height, bs.Height) {
 			continue
 		}
-		
+
 		if output.FromCoinBase && !includeImmatureCoinbases {
 			target := int32(w.chainParams.CoinbaseMaturity)
 			if !confirmed(target, output.Height, bs.Height) {

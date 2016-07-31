@@ -469,6 +469,22 @@ func (w *Wallet) CreateSimpleTx(account uint32, outputs []*wire.TxOut,
 	return resp.tx, resp.err
 }
 
+// CreateTx creates a new signed transaction from the given outputs
+// and inputs.
+func (w *Wallet) CreateTx(account uint32, outputs []*wire.TxOut,
+	redeem []wtxmgr.Credit) (*txauthor.AuthoredTx, error) {
+
+	req := createTxRequest{
+		account: account,
+		outputs: outputs,
+		redeem:  redeem,
+		resp:    make(chan createTxResponse),
+	}
+	w.createTxRequests <- req
+	resp := <-req.resp
+	return resp.tx, resp.err
+}
+
 type (
 	unlockRequest struct {
 		passphrase []byte
@@ -962,9 +978,9 @@ func (w *Wallet) FundTransaction(
 	includeImmatureCoinbases bool,
 	includeChangeScript bool,
 	pred func(wtxmgr.Credit) bool) ([]wtxmgr.Credit, btcutil.Amount, []byte, error) {
-		
+
 	// We cannot automatically generate a change output if we are funding
-	// from the imported account. 
+	// from the imported account.
 	if includeChangeScript && account == waddrmgr.ImportedAddrAccount {
 		return nil, 0, nil, errors.New("Cannot automatically generate change output with imported account.")
 	}
@@ -978,7 +994,7 @@ func (w *Wallet) FundTransaction(
 	if err != nil {
 		return nil, 0, nil, err
 	}
-	
+
 	// Add change script if desired.
 	var changeScript []byte
 	if includeChangeScript && totalAmount > btcutil.Amount(targetAmount) {
