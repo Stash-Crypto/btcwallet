@@ -144,6 +144,9 @@ var rpcHandlers = map[string]struct {
 	"listalltransactions":     {handler: listAllTransactions},
 	"renameaccount":           {handler: renameAccount},
 	"walletislocked":          {handler: walletIsLocked},
+
+	// Methods for bip 47, reusable payment codes.
+	"bip47notify": {handlerWithChain: bip47Notify},
 }
 
 // unimplemented handles an unimplemented RPC request with the
@@ -1258,19 +1261,19 @@ func listSinceBlock(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	// For the result we need the block hash for the last block counted
 	// in the blockchain due to confirmations. We send this off in a separate
 	// goroutine so that it can arrive asynchronously while we figure out the rest.
-	// This is possible if the ChainClient is the rpc client. 
-	gbh := make(chan struct{
+	// This is possible if the ChainClient is the rpc client.
+	gbh := make(chan struct {
 		hash *chainhash.Hash
-		err error
+		err  error
 	})
 	go func() {
 		hash, err := s.ChainClient().GetBlockHash(int64(syncBlock.Height) + 1 - targetConf)
-		gbh<-struct{
+		gbh <- struct {
 			hash *chainhash.Hash
-			err error
+			err  error
 		}{
 			hash: hash,
-			err: err, 
+			err:  err,
 		}
 	}()
 

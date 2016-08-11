@@ -406,4 +406,11 @@ var helpDescsEnUS = map[string]string{
 	// WalletIsLockedCmd help.
 	"walletislocked--synopsis": "Returns whether or not the wallet is locked.",
 	"walletislocked--result0":  "Whether the wallet is locked",
+
+	// Bip47NotifyCmd help.
+	"bip47notify--synopsis": "Send a bip 47 notification transaction.",
+	"bip47notify--result0":  "The id of the transaction.",
+	"bip47notify-account":   "The account from which to draw funds.",
+	"bip47notify-alice":     "The sender's payment code.",
+	"bip47notify-bob":       "The receiver's payment code.",
 }

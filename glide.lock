@@ -4,7 +4,7 @@ imports:
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/btcd
-  version: 47885ab8702485be6b6f87a03d4f3be0bc5c982c
+  version: a4ff07762c57ee4cab7c674d3678f5f420fe9120
   subpackages:
   - blockchain
   - btcec
@@ -19,7 +19,7 @@ imports:
 - name: github.com/btcsuite/btcrpcclient
   version: c72658166ae09457e6beb14e9112241e352ebd35
 - name: github.com/btcsuite/btcutil
-  version: 5ffa719c3882fd2ec1e8b9f4978066701c31a343
+  version: 3be42d207cbfea64014e52e6873954c77d30c252
   subpackages:
   - base58
   - hdkeychain
