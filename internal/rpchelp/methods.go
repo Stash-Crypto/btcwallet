@@ -68,6 +68,7 @@ var Methods = []struct {
 	{"listalltransactions", returnsLTRArray},
 	{"renameaccount", nil},
 	{"walletislocked", returnsBool},
+	{"bip47notify", returnsString},
 }
 
 // HelpDescs contains the locale-specific help strings along with the locale.
