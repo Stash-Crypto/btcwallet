@@ -143,6 +143,9 @@ var rpcHandlers = map[string]struct {
 	"listalltransactions":     {handler: listAllTransactions},
 	"renameaccount":           {handler: renameAccount},
 	"walletislocked":          {handler: walletIsLocked},
+
+	// Methods for bip 47, reusable payment codes.
+	"bip47notify": {handler: bip47Notify},
 }
 
 // unimplemented handles an unimplemented RPC request with the
