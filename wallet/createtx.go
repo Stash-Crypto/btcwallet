@@ -128,19 +128,24 @@ func (w *Wallet) txToOutputs(outputs []*wire.TxOut, account uint32,
 		inputSource = makeInputSource(eligible)
 	}
 
-	changeSource := func() ([]byte, error) {
-		// Derive the change output script.  As a hack to allow spending from
-		// the imported account, change addresses are created from account 0.
-		var changeAddr btcutil.Address
-		if account == waddrmgr.ImportedAddrAccount {
-			changeAddr, err = w.NewChangeAddress(0)
-		} else {
-			changeAddr, err = w.NewChangeAddress(account)
+	var changeSource func() ([]byte, error)
+	// TODO This logic makes no sense. All the refactoring for bip47
+	// should be reconsidered later.
+	if redeem == nil {
+		changeSource = func() ([]byte, error) {
+			// Derive the change output script.  As a hack to allow spending from
+			// the imported account, change addresses are created from account 0.
+			var changeAddr btcutil.Address
+			if account == waddrmgr.ImportedAddrAccount {
+				changeAddr, err = w.NewChangeAddress(0)
+			} else {
+				changeAddr, err = w.NewChangeAddress(account)
+			}
+			if err != nil {
+				return nil, err
+			}
+			return txscript.PayToAddrScript(changeAddr)
 		}
-		if err != nil {
-			return nil, err
-		}
-		return txscript.PayToAddrScript(changeAddr)
 	}
 	tx, err := txauthor.NewUnsignedTransaction(outputs, w.RelayFee(),
 		inputSource, changeSource)
