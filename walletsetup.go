@@ -128,7 +128,7 @@ func createWallet(cfg *config) error {
 	reader := bufio.NewReader(os.Stdin)
 	var privPass []byte
 	if cfg.NoPass {
-		privPass = []byte(wallet.InsecurePrivPassphrase)
+		privPass = nil
 	} else {
 		privPass, err = prompt.PrivatePass(reader, legacyKeyStore)
 		if err != nil {
@@ -139,7 +139,7 @@ func createWallet(cfg *config) error {
 	// When there exists a legacy keystore, unlock it now and set up a
 	// callback to import all keystore keys into the new walletdb
 	// wallet
-	if legacyKeyStore != nil {
+	if legacyKeyStore != nil && privPass != nil {
 		err = legacyKeyStore.Unlock(privPass)
 		if err != nil {
 			return err
