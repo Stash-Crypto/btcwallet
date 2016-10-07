@@ -744,7 +744,7 @@ func (s *loaderServer) CreateWallet(ctx context.Context, req *pb.CreateWalletReq
 	// Use an insecure public passphrase when the request's is empty.
 	pubPassphrase := req.PublicPassphrase
 	if len(pubPassphrase) == 0 {
-		pubPassphrase = []byte(wallet.InsecurePubPassphrase)
+		pubPassphrase = []byte(waddrmgr.InsecurePubPassphrase)
 	}
 
 	wallet, err := s.loader.CreateNewWallet(pubPassphrase, req.PrivatePassphrase, req.Seed)
@@ -767,7 +767,7 @@ func (s *loaderServer) OpenWallet(ctx context.Context, req *pb.OpenWalletRequest
 	// Use an insecure public passphrase when the request's is empty.
 	pubPassphrase := req.PublicPassphrase
 	if len(pubPassphrase) == 0 {
-		pubPassphrase = []byte(wallet.InsecurePubPassphrase)
+		pubPassphrase = []byte(waddrmgr.InsecurePubPassphrase)
 	}
 
 	wallet, err := s.loader.OpenExistingWallet(pubPassphrase, false)
