@@ -44,9 +44,6 @@ const (
 	// data in the waddrmgr namespace.  Transactions are not yet encrypted.
 	InsecurePubPassphrase = "public"
 
-	// InsecurePrivPassphrase is used if option 'nopass' is set.
-	InsecurePrivPassphrase = "priv"
-
 	walletDbWatchingOnlyName = "wowallet.db"
 )
 

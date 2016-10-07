@@ -108,7 +108,7 @@ func noConsole() ([]byte, error) {
 }
 
 func defaultPassword() ([]byte, error) {
-	return []byte(InsecurePrivPassphrase), nil
+	return []byte(waddrmgr.InsecurePrivPassphrase), nil
 }
 
 // OpenExistingWallet opens the wallet from the loader's wallet database path
