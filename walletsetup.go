@@ -152,10 +152,10 @@ func createWallet(cfg *config) error {
 	// the user does not want the additional public data encryption.
 	var pubPass []byte
 	if cfg.NoPass {
-		pubPass = []byte(wallet.InsecurePubPassphrase)
+		pubPass = nil
 	} else {
 		pubPass, err = prompt.PublicPass(reader, privPass,
-			[]byte(wallet.InsecurePubPassphrase), []byte(cfg.WalletPass))
+			[]byte(waddrmgr.InsecurePubPassphrase), []byte(cfg.WalletPass))
 		if err != nil {
 			return err
 		}
@@ -236,7 +236,7 @@ func createSimulationWallet(cfg *config) error {
 	privPass := []byte("password")
 
 	// Public passphrase is the default.
-	pubPass := []byte(wallet.InsecurePubPassphrase)
+	pubPass := []byte(waddrmgr.InsecurePubPassphrase)
 
 	netDir := networkDir(cfg.AppDataDir.Value, activeNet.Params)
 

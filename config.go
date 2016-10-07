@@ -18,7 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/internal/cfgutil"
 	"github.com/btcsuite/btcwallet/internal/legacy/keystore"
 	"github.com/btcsuite/btcwallet/netparams"
-	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	flags "github.com/jessevdk/go-flags"
 )
 
@@ -252,7 +252,7 @@ func loadConfig() (*config, []string, error) {
 		ConfigFile:             cfgutil.NewExplicitString(defaultConfigFile),
 		AppDataDir:             cfgutil.NewExplicitString(defaultAppDataDir),
 		LogDir:                 defaultLogDir,
-		WalletPass:             wallet.InsecurePubPassphrase,
+		WalletPass:             waddrmgr.InsecurePubPassphrase,
 		CAFile:                 cfgutil.NewExplicitString(""),
 		RPCKey:                 cfgutil.NewExplicitString(defaultRPCKeyFile),
 		RPCCert:                cfgutil.NewExplicitString(defaultRPCCertFile),
