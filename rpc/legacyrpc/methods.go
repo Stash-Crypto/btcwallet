@@ -909,6 +909,7 @@ func getTransaction(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 			Category: "send",
 			Amount:   (-debitTotal).ToBTC(), // negative since it is a send
 			Fee:      &feeF64,
+			Comment:  w.Comments().GetTransactionComment(txHash),
 		}
 		ret.Fee = feeF64
 	}
@@ -1445,7 +1446,7 @@ func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) 
 // It returns the transaction hash in string format upon success
 // All errors are returned in btcjson.RPCError format
 func sendPairs(s *wallet.Session, amounts map[string]btcutil.Amount,
-	account uint32, minconf int32) (string, error) {
+	account uint32, minconf int32, comment *string) (string, error) {
 	outputs, err := makeOutputs(amounts, s.Wallet.ChainParams())
 	if err != nil {
 		return "", err
@@ -1469,6 +1470,11 @@ func sendPairs(s *wallet.Session, amounts map[string]btcutil.Amount,
 		}
 	}
 
+	// Insert comment.
+	if !isNilOrEmpty(comment) {
+		s.Wallet.Comments().SetTransactionComment(txHash, *comment)
+	}
+
 	txHashStr := txHash.String()
 	log.Infof("Successfully sent transaction %v", txHashStr)
 	return txHashStr, nil
@@ -1486,12 +1492,12 @@ func isNilOrEmpty(s *string) bool {
 func sendFrom(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendFromCmd)
 
-	// Transaction comments are not yet supported.  Error instead of
-	// pretending to save them.
-	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
+	// Comment-to is not yet supported.  Error instead of
+	// pretending to save it.
+	if !isNilOrEmpty(cmd.CommentTo) {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCUnimplemented,
-			Message: "Transaction comments are not yet supported",
+			Message: "Comment-to is not supported",
 		}
 	}
 
@@ -1517,7 +1523,7 @@ func sendFrom(icmd interface{}, s *wallet.Session) (interface{}, error) {
 		cmd.ToAddress: amt,
 	}
 
-	return sendPairs(s, pairs, account, minConf)
+	return sendPairs(s, pairs, account, minConf, cmd.Comment)
 }
 
 // sendMany handles a sendmany RPC request by creating a new transaction
@@ -1527,15 +1533,6 @@ func sendFrom(icmd interface{}, s *wallet.Session) (interface{}, error) {
 // Upon success, the TxID for the created transaction is returned.
 func sendMany(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendManyCmd)
-
-	// Transaction comments are not yet supported.  Error instead of
-	// pretending to save them.
-	if !isNilOrEmpty(cmd.Comment) {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCUnimplemented,
-			Message: "Transaction comments are not yet supported",
-		}
-	}
 
 	account, err := s.Wallet.Manager.LookupAccount(cmd.FromAccount)
 	if err != nil {
@@ -1558,7 +1555,7 @@ func sendMany(icmd interface{}, s *wallet.Session) (interface{}, error) {
 		pairs[k] = amt
 	}
 
-	return sendPairs(s, pairs, account, minConf)
+	return sendPairs(s, pairs, account, minConf, cmd.Comment)
 }
 
 // sendToAddress handles a sendtoaddress RPC request by creating a new
@@ -1569,12 +1566,12 @@ func sendMany(icmd interface{}, s *wallet.Session) (interface{}, error) {
 func sendToAddress(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendToAddressCmd)
 
-	// Transaction comments are not yet supported.  Error instead of
-	// pretending to save them.
-	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
+	// Comment-to is not yet supported.  Error instead of
+	// pretending to save it.
+	if !isNilOrEmpty(cmd.CommentTo) {
 		return nil, &btcjson.RPCError{
 			Code:    btcjson.ErrRPCUnimplemented,
-			Message: "Transaction comments are not yet supported",
+			Message: "comment-to is not supported",
 		}
 	}
 
@@ -1594,7 +1591,7 @@ func sendToAddress(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	}
 
 	// sendtoaddress always spends from the default account, this matches bitcoind
-	return sendPairs(s, pairs, waddrmgr.DefaultAccountNum, 1)
+	return sendPairs(s, pairs, waddrmgr.DefaultAccountNum, 1, cmd.Comment)
 }
 
 // setTxFee sets the transaction fee per kilobyte added to transactions.

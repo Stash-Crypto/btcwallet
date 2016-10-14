@@ -48,6 +48,7 @@ var ErrNotificationsClosed = errors.New("Notification stream has closed.")
 var (
 	waddrmgrNamespaceKey = []byte("waddrmgr")
 	wtxmgrNamespaceKey   = []byte("wtxmgr")
+	commentsNamespaceKey = []byte("comments")
 )
 
 // Wallet is a structure containing all the components for a
@@ -60,9 +61,10 @@ type Wallet struct {
 	publicPassphrase []byte
 
 	// Data stores
-	db      walletdb.DB
-	Manager *waddrmgr.Manager
-	TxStore *wtxmgr.Store
+	db       walletdb.DB
+	comments Comments
+	Manager  *waddrmgr.Manager
+	TxStore  *wtxmgr.Store
 
 	lockedOutpoints map[wire.OutPoint]struct{}
 	relayFee        btcutil.Amount
@@ -359,6 +361,11 @@ func (w *Wallet) ChangePassphrase(old, new []byte) error {
 	return <-err
 }
 
+// Comments returns the comments struct for this wallet.
+func (w *Wallet) Comments() Comments {
+	return w.comments
+}
+
 // AccountUsed returns whether there are any recorded transactions spending to
 // a given account. It returns true if atleast one address in the account was
 // used and false if no address in the account was used.
@@ -533,7 +540,7 @@ func RecvCategory(details *wtxmgr.TxDetails, syncHeight int32, net *chaincfg.Par
 //
 // TODO: This should be moved to the legacyrpc package.
 func ListTransactions(details *wtxmgr.TxDetails, addrMgr *waddrmgr.Manager,
-	syncHeight int32, net *chaincfg.Params) []btcjson.ListTransactionsResult {
+	syncHeight int32, net *chaincfg.Params, comments Comments) []btcjson.ListTransactionsResult {
 
 	var (
 		blockHashStr  string
@@ -626,6 +633,7 @@ outputs:
 			WalletConflicts: []string{},
 			Time:            received,
 			TimeReceived:    received,
+			Comment:         comments.GetTransactionComment(&details.Hash),
 		}
 
 		// Add a received/generated/immature result if this is a credit.
@@ -663,7 +671,7 @@ func (w *Wallet) ListSinceBlock(start, end, syncHeight int32) ([]btcjson.ListTra
 	err := w.TxStore.RangeTransactions(start, end, func(details []wtxmgr.TxDetails) (bool, error) {
 		for _, detail := range details {
 			jsonResults := ListTransactions(&detail, w.Manager,
-				syncHeight, w.chainParams)
+				syncHeight, w.chainParams, w.comments)
 			txList = append(txList, jsonResults...)
 		}
 		return false, nil
@@ -705,7 +713,7 @@ func (w *Wallet) ListTransactions(from, count int) ([]btcjson.ListTransactionsRe
 			}
 
 			jsonResults := ListTransactions(&details[i],
-				w.Manager, syncBlock.Height, w.chainParams)
+				w.Manager, syncBlock.Height, w.chainParams, w.comments)
 			txList = append(txList, jsonResults...)
 		}
 
@@ -749,7 +757,7 @@ func (w *Wallet) ListAddressTransactions(pkHashes map[string]struct{}) (
 				}
 
 				jsonResults := ListTransactions(detail, w.Manager,
-					syncBlock.Height, w.chainParams)
+					syncBlock.Height, w.chainParams, w.comments)
 				if err != nil {
 					return false, err
 				}
@@ -782,7 +790,7 @@ func (w *Wallet) ListAllTransactions() ([]btcjson.ListTransactionsResult, error)
 		// reverse order they were marked mined.
 		for i := len(details) - 1; i >= 0; i-- {
 			jsonResults := ListTransactions(&details[i], w.Manager,
-				syncBlock.Height, w.chainParams)
+				syncBlock.Height, w.chainParams, w.comments)
 			txList = append(txList, jsonResults...)
 		}
 		return false, nil
@@ -1596,11 +1604,17 @@ func Open(db walletdb.DB, pubPass []byte, cbs *waddrmgr.OpenCallbacks, params *c
 	if err != nil {
 		return nil, err
 	}
+	
+	comments, err := db.Namespace(commentsNamespaceKey)
+	if err != nil {
+		return nil, err
+	}
 
 	log.Infof("Opened wallet") // TODO: log balance? last sync height?
 	w := &Wallet{
 		publicPassphrase:    pubPass,
 		db:                  db,
+		comments:            NewComments(comments), 
 		Manager:             addrMgr,
 		TxStore:             txMgr,
 		lockedOutpoints:     map[wire.OutPoint]struct{}{},
