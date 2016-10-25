@@ -436,7 +436,7 @@ func testInternalAddresses(tc *testContext) bool {
 
 	// Setup a closure to test the results since the same tests need to be
 	// repeated with the manager locked and unlocked.
-	testResults := func() bool {
+	testResults := func() bool {		
 		// Ensure the returned addresses are the expected ones.  When
 		// not in the create phase, there will be no addresses in the
 		// addrs slice, so this really only runs during the first phase

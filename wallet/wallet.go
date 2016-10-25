@@ -36,16 +36,6 @@ import (
 )
 
 const (
-	// InsecurePubPassphrase is the default outer encryption passphrase used
-	// for public data (everything but private keys).  Using a non-default
-	// public passphrase can prevent an attacker without the public
-	// passphrase from discovering all past and future wallet addresses if
-	// they gain access to the wallet database.
-	//
-	// NOTE: at time of writing, public encryption only applies to public
-	// data in the waddrmgr namespace.  Transactions are not yet encrypted.
-	InsecurePubPassphrase = "public"
-
 	walletDbWatchingOnlyName = "wowallet.db"
 )
 
