@@ -6,7 +6,6 @@ package wallet
 
 import(
 	"github.com/btcsuite/btcwallet/walletdb"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 )
 
@@ -15,87 +14,82 @@ var databaseCommentsKey = []byte("comments")
 // comments manages the association of transactions and
 // addresses to comments. 
 type Comments struct{
-	db walletdb.Namespace
+	comments map[chainhash.Hash]string
+	update map[*chainhash.Hash]struct{}
 }
 
 // NewComments creates a new comments object and initialize
 // the database if necessary. 
 func NewComments(db walletdb.Namespace) Comments {
-	// Create a bucket for comments in the database, if it
-	// doesn't exist. 
+	comments := make(map[chainhash.Hash]string)
+	
 	db.Update(func(dbtx walletdb.Tx) error {
 		root := dbtx.RootBucket()
 		bucket := root.Bucket(databaseCommentsKey)
 		
+		// Create a bucket for comments in the database, if it
+		// doesn't exist. 
 		if bucket == nil {
 			root.CreateBucket(databaseCommentsKey)
+			return nil
+		}
+		
+		// If it does exist, go through it and grap all comments. 
+		err := bucket.ForEach(func(k, v []byte) error {
+			if v != nil {
+				hash, err := chainhash.NewHash(k)
+				if err != nil {
+					return err
+				}
+				
+				comments[*hash] = string(v)
+			}
+			
+			return nil
+		}); 
+		
+		if err != nil {
+			return err
 		}
 		
 		return nil
 	})
 
-	return Comments{db:db}
-}
-
-func (c Comments) GetAddressComment(address btcutil.Address) string {
-	var comment string
-	
-	c.db.Update(func(dbtx walletdb.Tx) error {
-		comments := dbtx.RootBucket().Bucket(databaseCommentsKey)
-		
-		cmt := comments.Get([]byte(address.EncodeAddress()))
-		
-		if cmt != nil {
-			comment = string(cmt)
-		}
-		
-		return nil
-	}) 
-	
-	return comment
+	return Comments{
+		comments: comments, 
+		update:   make(map[*chainhash.Hash]struct{}), 
+	}
 }
 
 func (c Comments) GetTransactionComment(hash *chainhash.Hash) string {
-	var comment string
-	c.db.Update(func(dbtx walletdb.Tx) error {
-		comments := dbtx.RootBucket().Bucket(databaseCommentsKey)
+	return c.comments[*hash]
+}
+
+func (c Comments) SetTransactionComment(hash *chainhash.Hash, comment string) {
+	c.comments[*hash] = comment
+	c.update[hash] = struct{}{}
+}
+
+func (c Comments) Update(db walletdb.Namespace) error {
+	err := db.Update(func(dbtx walletdb.Tx) error {
+		bucket := dbtx.RootBucket().Bucket(databaseCommentsKey)
 		
-		cmt := comments.Get(hash[:])
-		
-		if cmt != nil {
-			comment = string(cmt)
+		for hash, _ := range c.update {
+			err := bucket.Put(hash[:], []byte(c.comments[*hash]))
+			
+			if err != nil {
+				return err
+			}
 		}
 		
 		return nil
 	}) 
 	
-	return comment
-}
-
-func (c Comments) SetAddressComment(address btcutil.Address, comment string) error {
-	err := c.db.Update(func(dbtx walletdb.Tx) error {
-		bucket := dbtx.RootBucket().Bucket(databaseCommentsKey)
-		
-		return bucket.Put([]byte(address.EncodeAddress()), []byte(comment))
-	}) 
+	c.update = make(map[*chainhash.Hash]struct{})
 	
 	if err != nil {
 		return err
 	}
 	
 	return nil
-}
-
-func (c Comments) SetTransactionComment(hash *chainhash.Hash, comment string) error {
-	err := c.db.Update(func(dbtx walletdb.Tx) error {
-		bucket := dbtx.RootBucket().Bucket(databaseCommentsKey)
-		
-		return bucket.Put(hash[:], []byte(comment))
-	}) 
-	
-	if err != nil {
-		return err
-	}
-	
-	return nil 
 }
