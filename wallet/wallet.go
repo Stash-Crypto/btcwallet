@@ -159,6 +159,13 @@ func (w *Wallet) synchronizeChain(chainClient chain.Client,
 		return err
 	}
 
+	comments, err := w.db.Namespace(commentsNamespaceKey)
+	if err != nil {
+		return err
+	}
+
+	w.comments.Update(comments)
+
 	return nil
 }
 
@@ -1604,7 +1611,7 @@ func Open(db walletdb.DB, pubPass []byte, cbs *waddrmgr.OpenCallbacks, params *c
 	if err != nil {
 		return nil, err
 	}
-	
+
 	comments, err := db.Namespace(commentsNamespaceKey)
 	if err != nil {
 		return nil, err
@@ -1614,7 +1621,7 @@ func Open(db walletdb.DB, pubPass []byte, cbs *waddrmgr.OpenCallbacks, params *c
 	w := &Wallet{
 		publicPassphrase:    pubPass,
 		db:                  db,
-		comments:            NewComments(comments), 
+		comments:            NewComments(comments),
 		Manager:             addrMgr,
 		TxStore:             txMgr,
 		lockedOutpoints:     map[wire.OutPoint]struct{}{},
