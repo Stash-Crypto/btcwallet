@@ -228,6 +228,13 @@ func (w *Wallet) Stop() {
 			w.chainClient = nil
 		}
 		w.chainClientLock.Unlock()
+		
+		comments, err := w.db.Namespace(commentsNamespaceKey)
+		if err != nil {
+			return
+		}
+		
+		w.comments.Update(comments)
 	}
 }
 
