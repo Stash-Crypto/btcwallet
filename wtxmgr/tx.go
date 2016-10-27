@@ -79,6 +79,7 @@ type TxRecord struct {
 	Hash         chainhash.Hash
 	Received     time.Time
 	SerializedTx []byte // Optional: may be nil
+	Comment      string
 }
 
 // NewTxRecord creates a new transaction record that may be inserted into the
@@ -100,7 +101,7 @@ func NewTxRecord(serializedTx []byte, received time.Time) (*TxRecord, error) {
 
 // NewTxRecordFromMsgTx creates a new transaction record that may be inserted
 // into the store.
-func NewTxRecordFromMsgTx(msgTx *wire.MsgTx, received time.Time) (*TxRecord, error) {
+func NewTxRecordFromMsgTx(msgTx *wire.MsgTx, received time.Time, comment *string) (*TxRecord, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, msgTx.SerializeSize()))
 	err := msgTx.Serialize(buf)
 	if err != nil {
@@ -111,6 +112,9 @@ func NewTxRecordFromMsgTx(msgTx *wire.MsgTx, received time.Time) (*TxRecord, err
 		MsgTx:        *msgTx,
 		Received:     received,
 		SerializedTx: buf.Bytes(),
+	}
+	if comment != nil {
+		rec.Comment = *comment
 	}
 	copy(rec.Hash[:], chainhash.DoubleHashB(rec.SerializedTx))
 	return rec, nil

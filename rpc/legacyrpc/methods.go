@@ -890,6 +890,7 @@ func getTransaction(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 			Category: "send",
 			Amount:   (-debitTotal).ToBTC(), // negative since it is a send
 			Fee:      &feeF64,
+			Comment:  details.Comment,  
 		}
 		ret.Fee = feeF64
 	}
@@ -1412,12 +1413,12 @@ func makeOutputs(pairs map[string]btcutil.Amount, chainParams *chaincfg.Params) 
 // It returns the transaction hash in string format upon success
 // All errors are returned in btcjson.RPCError format
 func sendPairs(w *wallet.Wallet, amounts map[string]btcutil.Amount,
-	account uint32, minconf int32) (string, error) {
+	account uint32, minconf int32, comment *string) (string, error) {
 	outputs, err := makeOutputs(amounts, w.ChainParams())
 	if err != nil {
 		return "", err
 	}
-	txHash, err := w.SendOutputs(outputs, account, minconf)
+	txHash, err := w.SendOutputs(outputs, account, minconf, comment)
 	if err != nil {
 		if err == txrules.ErrAmountNegative {
 			return "", ErrNeedPositiveAmount
@@ -1484,7 +1485,7 @@ func sendFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) 
 		cmd.ToAddress: amt,
 	}
 
-	return sendPairs(w, pairs, account, minConf)
+	return sendPairs(w, pairs, account, minConf, cmd.Comment)
 }
 
 // sendMany handles a sendmany RPC request by creating a new transaction
@@ -1525,7 +1526,7 @@ func sendMany(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 		pairs[k] = amt
 	}
 
-	return sendPairs(w, pairs, account, minConf)
+	return sendPairs(w, pairs, account, minConf, cmd.Comment)
 }
 
 // sendToAddress handles a sendtoaddress RPC request by creating a new
@@ -1561,7 +1562,7 @@ func sendToAddress(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	}
 
 	// sendtoaddress always spends from the default account, this matches bitcoind
-	return sendPairs(w, pairs, waddrmgr.DefaultAccountNum, 1)
+	return sendPairs(w, pairs, waddrmgr.DefaultAccountNum, 1, cmd.Comment)
 }
 
 // setTxFee sets the transaction fee per kilobyte added to transactions.
