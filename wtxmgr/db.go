@@ -7,6 +7,7 @@ package wtxmgr
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -360,19 +361,32 @@ func keyTxRecord(txHash *chainhash.Hash, block *Block) []byte {
 }
 
 func valueTxRecord(rec *TxRecord) ([]byte, error) {
+	var comment []byte
+	var err error
+	if rec.Comment != "" {
+		comment, err = json.Marshal(txRecordData{Comment: rec.Comment})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		comment = []byte{}
+	}
+	
 	var v []byte
 	if rec.SerializedTx == nil {
 		txSize := rec.MsgTx.SerializeSize()
-		v = make([]byte, 8, 8+txSize)
+		v = make([]byte, 8, 8+txSize+len(comment))
 		err := rec.MsgTx.Serialize(bytes.NewBuffer(v[8:]))
 		if err != nil {
 			str := fmt.Sprintf("unable to serialize transaction %v", rec.Hash)
 			return nil, storeError(ErrInput, str, err)
 		}
+		copy(v[8+txSize:], comment)
 		v = v[:cap(v)]
 	} else {
-		v = make([]byte, 8+len(rec.SerializedTx))
+		v = make([]byte, 8+len(rec.SerializedTx)+len(comment))
 		copy(v[8:], rec.SerializedTx)
+		copy(v[8+len(rec.SerializedTx):], comment)
 	}
 	byteOrder.PutUint64(v, uint64(rec.Received.Unix()))
 	return v, nil
@@ -401,6 +415,10 @@ func putRawTxRecord(ns walletdb.Bucket, k, v []byte) error {
 	return nil
 }
 
+type txRecordData struct {
+	Comment      string `json:"comment, omitempty"`
+}
+
 func readRawTxRecord(txHash *chainhash.Hash, v []byte, rec *TxRecord) error {
 	if len(v) < 8 {
 		str := fmt.Sprintf("%s: short read (expected %d bytes, read %d)",
@@ -409,12 +427,40 @@ func readRawTxRecord(txHash *chainhash.Hash, v []byte, rec *TxRecord) error {
 	}
 	rec.Hash = *txHash
 	rec.Received = time.Unix(int64(byteOrder.Uint64(v)), 0)
-	err := rec.MsgTx.Deserialize(bytes.NewReader(v[8:]))
+	
+	if len(v) == 8 {
+		return nil
+	}
+	
+	// Attempt to read a raw transaction. 
+	r := bytes.NewReader(v[8:])
+	err := rec.MsgTx.Deserialize(r)
 	if err != nil {
 		str := fmt.Sprintf("%s: failed to deserialize transaction %v",
 			bucketTxRecords, txHash)
 		return storeError(ErrData, str, err)
 	}
+	
+	// Attempt to read json from the remainder to get the Comment field. 
+	// It might be missing. 
+	remaining := r.Len()
+	if remaining == 0 {
+		return nil
+	}
+	j := make([]byte, remaining)
+	_, err = r.Read(j)
+	if err != nil {
+		return err
+	}
+	
+	var data *txRecordData = &txRecordData{}
+	err = json.Unmarshal(j, data)
+	if err != nil {
+		return err
+	}
+	
+	rec.Comment = data.Comment
+	
 	return nil
 }
 

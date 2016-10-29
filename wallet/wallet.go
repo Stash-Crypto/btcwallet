@@ -57,9 +57,9 @@ type Wallet struct {
 	publicPassphrase []byte
 
 	// Data stores
-	db      walletdb.DB
-	Manager *waddrmgr.Manager
-	TxStore *wtxmgr.Store
+	db       walletdb.DB
+	Manager  *waddrmgr.Manager
+	TxStore  *wtxmgr.Store
 
 	chainClient        *chain.RPCClient
 	chainClientLock    sync.Mutex
@@ -910,6 +910,7 @@ outputs:
 			WalletConflicts: []string{},
 			Time:            received,
 			TimeReceived:    received,
+			Comment:         details.Comment,
 		}
 
 		// Add a received/generated/immature result if this is a credit.
@@ -1848,7 +1849,7 @@ func (w *Wallet) TotalReceivedForAddr(addr btcutil.Address, minConf int32) (btcu
 // SendOutputs creates and sends payment transactions. It returns the
 // transaction hash upon success.
 func (w *Wallet) SendOutputs(outputs []*wire.TxOut, account uint32,
-	minconf int32) (*chainhash.Hash, error) {
+	minconf int32, comment *string) (*chainhash.Hash, error) {
 
 	chainClient, err := w.requireChainClient()
 	if err != nil {
@@ -1871,7 +1872,7 @@ func (w *Wallet) SendOutputs(outputs []*wire.TxOut, account uint32,
 	}
 
 	// Create transaction record and insert into the db.
-	rec, err := wtxmgr.NewTxRecordFromMsgTx(createdTx.Tx, time.Now())
+	rec, err := wtxmgr.NewTxRecordFromMsgTx(createdTx.Tx, time.Now(), comment)
 	if err != nil {
 		log.Errorf("Cannot create record for created transaction: %v", err)
 		return nil, err

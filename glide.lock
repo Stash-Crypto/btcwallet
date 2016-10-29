@@ -4,7 +4,7 @@ imports:
 - name: github.com/boltdb/bolt
   version: 583e8937c61f1af6513608ccc75c97b6abdf4ff9
 - name: github.com/btcsuite/btcd
-  version: f6ad7eb2c963151c71de2bd37d04d9af644a891d
+  version: 179a57e1d6a2b81bd7d0e10b5548c5274bf34006
   subpackages:
   - blockchain
   - btcec

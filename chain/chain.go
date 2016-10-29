@@ -261,7 +261,7 @@ func (c *RPCClient) onRecvTx(tx *btcutil.Tx, block *btcjson.BlockDetails) {
 		return
 	}
 
-	rec, err := wtxmgr.NewTxRecordFromMsgTx(tx.MsgTx(), time.Now())
+	rec, err := wtxmgr.NewTxRecordFromMsgTx(tx.MsgTx(), time.Now(), nil)
 	if err != nil {
 		log.Errorf("Cannot create transaction record for relevant "+
 			"tx: %v", err)
