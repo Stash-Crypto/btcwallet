@@ -1454,15 +1454,6 @@ func isNilOrEmpty(s *string) bool {
 func sendFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendFromCmd)
 
-	// Transaction comments are not yet supported.  Error instead of
-	// pretending to save them.
-	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCUnimplemented,
-			Message: "Transaction comments are not yet supported",
-		}
-	}
-
 	account, err := w.Manager.LookupAccount(cmd.FromAccount)
 	if err != nil {
 		return nil, err
@@ -1496,15 +1487,6 @@ func sendFrom(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) 
 func sendMany(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendManyCmd)
 
-	// Transaction comments are not yet supported.  Error instead of
-	// pretending to save them.
-	if !isNilOrEmpty(cmd.Comment) {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCUnimplemented,
-			Message: "Transaction comments are not yet supported",
-		}
-	}
-
 	account, err := w.Manager.LookupAccount(cmd.FromAccount)
 	if err != nil {
 		return nil, err
@@ -1536,16 +1518,7 @@ func sendMany(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 // the TxID for the created transaction is returned.
 func sendToAddress(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	cmd := icmd.(*btcjson.SendToAddressCmd)
-
-	// Transaction comments are not yet supported.  Error instead of
-	// pretending to save them.
-	if !isNilOrEmpty(cmd.Comment) || !isNilOrEmpty(cmd.CommentTo) {
-		return nil, &btcjson.RPCError{
-			Code:    btcjson.ErrRPCUnimplemented,
-			Message: "Transaction comments are not yet supported",
-		}
-	}
-
+	
 	amt, err := btcutil.NewAmount(cmd.Amount)
 	if err != nil {
 		return nil, err
