@@ -26,6 +26,8 @@ import:
 - package: github.com/golang/protobuf
   subpackages:
   - proto
+- package: github.com/OpenBazaar/spvwallet
+  version: 81d4fa3c47b1ad518d8b9e8a39aeda5bbfd69e6a
 - package: github.com/jessevdk/go-flags
   version: 1679536dcc895411a9f5848d9a0250be7856448c
 - package: golang.org/x/net
