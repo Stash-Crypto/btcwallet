@@ -210,20 +210,13 @@ func (s *Server) RegisterWallet(session *wallet.Session) {
 // account files.  This blocks until shutdown completes.
 func (s *Server) Stop() {
 	s.quitMtx.Lock()
+	
+	// If the Server has already been stopped, return right away. 
 	select {
 	case <-s.quit:
 		s.quitMtx.Unlock()
 		return
 	default:
-	}
-
-	// Stop the connected wallet and chain server, if any.
-	s.handlerMu.Lock()
-	session := s.session
-	s.handlerMu.Unlock()
-
-	if session == nil {
-		return
 	}
 
 	// Stop all the listeners.
@@ -238,10 +231,6 @@ func (s *Server) Stop() {
 	// Signal the remaining goroutines to stop.
 	close(s.quit)
 	s.quitMtx.Unlock()
-
-	// First wait for the wallet and chain server to stop, if they
-	// were ever set.
-	session.Wallet.WaitForShutdown()
 
 	// Wait for all remaining goroutines to exit.
 	s.wg.Wait()

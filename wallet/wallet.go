@@ -113,7 +113,7 @@ func (w *Wallet) start() {
 	go w.walletLocker(w.quit)
 }
 
-// SynchronizeRPC associates the wallet with the consensus RPC client,
+// Synchronize associates the wallet with the consensus RPC client,
 // synchronizes the wallet with the latest changes to the blockchain, and
 // continuously updates the wallet through RPC notifications.
 //

@@ -165,6 +165,19 @@ func (s *Store) unminedTxRecords(ns walletdb.Bucket) (map[chainhash.Hash]*TxReco
 	return unmined, err
 }
 
+func (s *Store) UnminedTxRecords() (map[chainhash.Hash]*TxRecord, error) {
+	var rec map[chainhash.Hash]*TxRecord
+	err := scopedView(s.namespace, func(ns walletdb.Bucket) error {
+		var err error
+		rec, err = s.unminedTxRecords(ns)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return rec, nil
+}
+
 // UnminedTxHashes returns the hashes of all transactions not known to have been
 // mined in a block.
 func (s *Store) UnminedTxHashes() ([]*chainhash.Hash, error) {

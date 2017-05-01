@@ -10,8 +10,11 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
 	"runtime"
 
+	"github.com/OpenBazaar/spvwallet"
+	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/chain/rpc"
 	"github.com/btcsuite/btcwallet/rpc/legacyrpc"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -86,6 +89,7 @@ func walletMain() error {
 	var rpcs *grpc.Server
 	var legacyRPCServer *legacyrpc.Server
 
+	// Define the lifecycle of a session with the wallet.
 	lifecycle := func(ws *wallet.Session) error {
 		// All running rpc services are notified of the session's existence.
 		startWalletRPCServices(ws, rpcs, legacyRPCServer)
@@ -95,11 +99,47 @@ func walletMain() error {
 		return ws.Wallet.WaitForShutdown()
 	}
 
-	// Attempt to dial into btcd.
-	rpcClient, err := rpcClientDial()
-	if err != nil {
-		log.Errorf("Failed to create rpc connection to btcd: %v", err)
-		return err
+	var chainClient chain.Client
+
+	// The legacy rpc service is designed to pass any
+	var rpcClient *rpc.RPCClient
+
+	// Load the chain client. There is either an spv service or an rpc
+	// service that connects to btcd.
+	if cfg.SPV {
+		// Construct the spv manager.
+		spvClient, err := loader.LoadSPVClient([]uint32{0},
+			&spvwallet.PeerManagerConfig{
+				UserAgentName:    filepath.Base(os.Args[0]),
+				UserAgentVersion: version(),
+				Params:           activeNet.Params,
+				AddressCacheDir:  dbDir,
+				// An optional proxy dialer. Will use net.Dial if nil.
+				Proxy: nil,
+				// If this field is not nil the PeerManager will only connect to this address
+				TrustedPeer: nil,
+			})
+		if err != nil {
+			log.Errorf("Failed to open spv connection: %v", err)
+			return err
+		}
+		spvClient.Start()
+		chainClient = spvClient
+		addInterruptHandler(func() {
+			spvClient.Stop()
+		})
+	} else {
+		// Attempt to dial into btcd.
+		rpcClient, err = rpcClientDial()
+		if err != nil {
+			log.Errorf("Failed to create rpc connection to btcd: %v", err)
+			return err
+		}
+		rpcClient.Start()
+		chainClient = rpcClient
+		addInterruptHandler(func() {
+			rpcClient.Stop()
+		})
 	}
 
 	// Create and start HTTP server to serve wallet client connections.
@@ -112,24 +152,18 @@ func walletMain() error {
 	}
 
 	if !cfg.NoInitialLoad {
-		// Load the wallet database.  It must have been created already
-		// or this will return an appropriate error.
-		_, err = loader.OpenExistingWallet([]byte(cfg.WalletPass), !cfg.NoPass)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
+		_, err = loader.Session(chainClient, lifecycle)
 	}
 
 	// Add interrupt handlers to shutdown the various process components
 	// before exiting.  Interrupt handlers run in LIFO order, so the wallet
 	// (which should be closed last) is added first.
 	addInterruptHandler(func() {
+		log.Warn("About to unload wallet.")
 		err := loader.UnloadWallet()
 		if err != nil && err != wallet.ErrNotLoaded {
 			log.Errorf("Failed to close wallet: %v", err)
 		}
-		rpcClient.Stop()
 	})
 	if rpcs != nil {
 		addInterruptHandler(func() {

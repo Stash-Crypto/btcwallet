@@ -103,8 +103,7 @@ func generateRPCKeyPair(writeKey bool) (tls.Certificate, error) {
 	return keyPair, nil
 }
 
-func startRPCServers(walletLoader *wallet.Loader,
-	rpcClient *rpc.RPCClient,
+func startRPCServers(walletLoader *wallet.Loader, rpcClient *rpc.RPCClient,
 	lifecycle func(*wallet.Session) error) (*grpc.Server, *legacyrpc.Server, error) {
 	var (
 		server       *grpc.Server

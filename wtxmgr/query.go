@@ -7,6 +7,7 @@ package wtxmgr
 import (
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -92,6 +93,49 @@ func (s *Store) minedTxDetails(ns walletdb.Bucket, txHash *chainhash.Hash, recKe
 	return &details, debIter.err
 }
 
+func (s *Store) unregisteredTxDebits(ns walletdb.Bucket, tx *wire.MsgTx) ([]DebitRecord, error) {
+	debits := make([]DebitRecord, 0)
+	// Debit records are not saved for unmined transactions.  Instead, they
+	// must be looked up for each transaction input manually.  There are two
+	// kinds of previous credits that may be debited by an unmined
+	// transaction: mined unspent outputs (which remain marked unspent even
+	// when spent by an unmined transaction), and credits from other unmined
+	// transactions.  Both situations must be considered.
+	for i, output := range tx.TxIn {
+		opKey := canonicalOutPoint(&output.PreviousOutPoint.Hash,
+			output.PreviousOutPoint.Index)
+		credKey := existsRawUnspent(ns, opKey)
+		if credKey != nil {
+			v := existsRawCredit(ns, credKey)
+			amount, err := fetchRawCreditAmount(v)
+			if err != nil {
+				return nil, err
+			}
+
+			debits = append(debits, DebitRecord{
+				Amount: amount,
+				Index:  uint32(i),
+			})
+			continue
+		}
+
+		v := existsRawUnminedCredit(ns, opKey)
+		if v == nil {
+			continue
+		}
+
+		amount, err := fetchRawCreditAmount(v)
+		if err != nil {
+			return nil, err
+		}
+		debits = append(debits, DebitRecord{
+			Amount: amount,
+			Index:  uint32(i),
+		})
+	}
+	return debits, nil
+}
+
 // unminedTxDetails fetches the TxDetails for the unmined transaction with the
 // hash txHash and the passed unmined record value.
 func (s *Store) unminedTxDetails(ns walletdb.Bucket, txHash *chainhash.Hash, v []byte) (*TxDetails, error) {
@@ -116,6 +160,11 @@ func (s *Store) unminedTxDetails(ns walletdb.Bucket, txHash *chainhash.Hash, v [
 	}
 	if it.err != nil {
 		return nil, it.err
+	}
+	
+	details.Debits, err = s.unregisteredTxDebits(ns, &details.MsgTx)
+	if err != nil {
+		return nil, err
 	}
 
 	// Debit records are not saved for unmined transactions.  Instead, they
@@ -218,6 +267,18 @@ func (s *Store) UniqueTxDetails(txHash *chainhash.Hash, block *Block) (*TxDetail
 		return err
 	})
 	return details, err
+}
+
+// UnregisteredTxDebits returns a list of DebitRecords for a tx
+// that has not been inserted into the database. 
+func (s *Store) UnregisteredTxDebits(tx *wire.MsgTx) ([]DebitRecord, error) {
+	var debits []DebitRecord
+	err := scopedView(s.namespace, func(ns walletdb.Bucket) error {
+		var err error
+		debits, err = s.unregisteredTxDebits(ns, tx)
+		return err
+	})
+	return debits, err
 }
 
 // rangeUnminedTransactions executes the function f with TxDetails for every

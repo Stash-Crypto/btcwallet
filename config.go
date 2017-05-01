@@ -98,6 +98,9 @@ type config struct {
 
 	// Deprecated options
 	DataDir *cfgutil.ExplicitString `short:"b" long:"datadir" default-mask:"-" description:"DEPRECATED -- use appdata instead"`
+
+	// Experimental SPV options.
+	SPV bool `long:"spv" description:"Run in spv mode."`
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/OpenBazaar/spvwallet"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -14,19 +15,26 @@ import (
 )
 
 var (
-	spvNamespace = []byte("spv")
+	spvNamespace       = []byte("spv")
+	spvCreationDateKey = []byte("creationdate")
 )
 
+// Headers is an implementation of spvwallet.Headers which relies on
+// btcwallet's database interface.
 type Headers struct {
-	lock  sync.Mutex
-	best  *spvwallet.StoredHeader
-	chain map[uint32]*chainhash.Hash
-	db    walletdb.Namespace
+	lock         sync.Mutex
+	best         *spvwallet.StoredHeader
+	chain        map[uint32]*chainhash.Hash
+	db           walletdb.Namespace
+	creationDate time.Time
 
 	notifications chan<- chain.Notification
 }
 
-func NewHeaders(db walletdb.DB) (spvwallet.Headers, error) {
+var _ spvwallet.Headers = (*Headers)(nil)
+
+// NewHeaders creates a new Headers object.
+func NewHeaders(db walletdb.DB) (*Headers, error) {
 	// Get the spv namespace.
 	namespace, err := db.Namespace(spvNamespace)
 	if err != nil {
@@ -34,13 +42,15 @@ func NewHeaders(db walletdb.DB) (spvwallet.Headers, error) {
 	}
 
 	h := &Headers{
-		db: namespace,
+		db:    namespace,
+		chain: make(map[uint32]*chainhash.Hash),
 	}
 
 	empty, err := walletdb.NamespaceIsEmpty(namespace)
 	if err != nil {
 		return nil, err
 	}
+	// If the namespace is empty, set it up for storing the block headers.
 	if empty {
 		err = namespace.Update(func(tx walletdb.Tx) error {
 			root := tx.RootBucket()
@@ -52,11 +62,20 @@ func NewHeaders(db walletdb.DB) (spvwallet.Headers, error) {
 			if err != nil {
 				return err
 			}
+			h.creationDate = time.Now()
+			bt, _ := h.creationDate.MarshalBinary()
+			root.Put(spvCreationDateKey, bt)
 			return nil
 		})
 	} else {
 		err = namespace.View(func(tx walletdb.Tx) error {
-			tip := tx.RootBucket().Bucket(spvwallet.BKTChainTip)
+			// Get the creation date.
+			root := tx.RootBucket()
+			err := h.creationDate.UnmarshalBinary(root.Get(spvCreationDateKey))
+			if err != nil {
+				return err
+			}
+			tip := root.Bucket(spvwallet.BKTChainTip)
 			b := tip.Get(spvwallet.KEYChainTip)
 			if b == nil {
 				return errors.New("ChainTip not set")
@@ -93,7 +112,7 @@ func NewHeaders(db walletdb.DB) (spvwallet.Headers, error) {
 		return nil, err
 	}
 
-	// If the namespace is empty, set it up for storing the block headers.
+	// return the headers object.
 	return h, nil
 }
 
@@ -151,7 +170,7 @@ func (h *Headers) Put(sh spvwallet.StoredHeader, newBestHeader bool) error {
 			return err
 		}
 		hash := sh.Header.BlockHash()
-		err = hdrs.Put(hash.CloneBytes(), ser)
+		err = hdrs.Put(hash[:], ser)
 		if err != nil {
 			return err
 		}
@@ -168,8 +187,13 @@ func (h *Headers) Put(sh spvwallet.StoredHeader, newBestHeader bool) error {
 		if best != nil && best.Header.BlockHash() != sh.Header.PrevBlock {
 			return reorganizeChain(hdrs, h.chain, sh)
 		}
+		h.chain[sh.Height] = &hash
 		return nil
 	})
+}
+
+func (h *Headers) CreationDate() time.Time {
+	return h.creationDate
 }
 
 // GetHeader gets a header from a hash.
@@ -214,7 +238,7 @@ func (h *Headers) GetPreviousHeader(header wire.BlockHeader) (spvwallet.StoredHe
 	return sh, nil
 }
 
-// Retreive the best header from the database
+// GetBestHeader retreives the best header from the database
 func (h *Headers) GetBestHeader() (spvwallet.StoredHeader, error) {
 	h.lock.Lock()
 	defer h.lock.Unlock()
@@ -226,7 +250,7 @@ func (h *Headers) GetBestHeader() (spvwallet.StoredHeader, error) {
 	return *h.best, nil
 }
 
-// Get the height of chain
+// Height gets the height of chain.
 func (h *Headers) Height() (uint32, error) {
 	h.lock.Lock()
 	defer h.lock.Unlock()
