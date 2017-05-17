@@ -24,7 +24,7 @@ type Session struct {
 	Wallet *Wallet
 	quit   chan struct{}
 
-	chainClient        *chain.RPCClient
+	chainClient        chain.Client
 	chainClientSynced  bool
 	chainClientSyncMtx sync.Mutex
 }
@@ -81,7 +81,7 @@ func (s *Session) setChainSynced(synced bool) {
 	s.chainClientSyncMtx.Unlock()
 }
 
-func (s *Session) ChainClient() *chain.RPCClient {
+func (s *Session) ChainClient() chain.Client {
 	return s.chainClient
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/chain/rpc"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -172,7 +173,8 @@ type lazyHandler func() (interface{}, *btcjson.RPCError)
 // returning a closure that will execute it with the (required) wallet and
 // (optional) consensus RPC server.  If no handlers are found and the
 // chainClient is not nil, the returned handler performs RPC passthrough.
-func lazyApplyHandler(request *btcjson.Request, w *wallet.Wallet, s *wallet.Session) lazyHandler {
+func lazyApplyHandler(request *btcjson.Request, w *wallet.Wallet,
+	s *wallet.Session, chainClient *rpc.RPCClient) lazyHandler {
 	handlerData, ok := rpcHandlers[request.Method]
 	if ok && handlerData.handlerWithChain != nil && s != nil {
 		return func() (interface{}, *btcjson.RPCError) {
@@ -217,13 +219,13 @@ func lazyApplyHandler(request *btcjson.Request, w *wallet.Wallet, s *wallet.Sess
 
 	// Fallback to RPC passthrough
 	return func() (interface{}, *btcjson.RPCError) {
-		if s == nil {
+		if chainClient == nil {
 			return nil, &btcjson.RPCError{
 				Code:    -1,
 				Message: "Chain RPC is inactive",
 			}
 		}
-		resp, err := s.ChainClient().RawRequest(request.Method, request.Params)
+		resp, err := chainClient.RawRequest(request.Method, request.Params)
 		if err != nil {
 			return nil, jsonError(err)
 		}
@@ -987,7 +989,7 @@ func helpNoChainRPC(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 // methods, or full help for a specific method.  The chainClient is optional,
 // and this is simply a helper function for the HelpNoChainRPC and
 // HelpWithChainRPC handlers.
-func help(icmd interface{}, w *wallet.Wallet, chainClient *chain.RPCClient) (interface{}, error) {
+func help(icmd interface{}, w *wallet.Wallet, chainClient chain.Client) (interface{}, error) {
 	cmd := icmd.(*btcjson.HelpCmd)
 
 	// btcd returns different help messages depending on the kind of
@@ -1254,9 +1256,23 @@ func listSinceBlock(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	targetConf := int64(*cmd.TargetConfirmations)
 
 	// For the result we need the block hash for the last block counted
-	// in the blockchain due to confirmations. We send this off now so that
-	// it can arrive asynchronously while we figure out the rest.
-	gbh := s.ChainClient().GetBlockHashAsync(int64(syncBlock.Height) + 1 - targetConf)
+	// in the blockchain due to confirmations. We send this off in a separate
+	// goroutine so that it can arrive asynchronously while we figure out the rest.
+	// This is possible if the ChainClient is the rpc client. 
+	gbh := make(chan struct{
+		hash *chainhash.Hash
+		err error
+	})
+	go func() {
+		hash, err := s.ChainClient().GetBlockHash(int64(syncBlock.Height) + 1 - targetConf)
+		gbh<-struct{
+			hash *chainhash.Hash
+			err error
+		}{
+			hash: hash,
+			err: err, 
+		}
+	}()
 
 	var start int32
 	if cmd.BlockHash != nil {
@@ -1277,14 +1293,14 @@ func listSinceBlock(icmd interface{}, s *wallet.Session) (interface{}, error) {
 	}
 
 	// Done with work, get the response.
-	blockHash, err := gbh.Receive()
-	if err != nil {
-		return nil, err
+	blockHash := <-gbh
+	if blockHash.err != nil {
+		return nil, blockHash.err
 	}
 
 	res := btcjson.ListSinceBlockResult{
 		Transactions: txInfoList,
-		LastBlock:    blockHash.String(),
+		LastBlock:    blockHash.hash.String(),
 	}
 	return res, nil
 }

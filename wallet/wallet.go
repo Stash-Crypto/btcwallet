@@ -131,7 +131,7 @@ func (w *Wallet) start() {
 //
 // This method is unstable and will be removed when all syncing logic is moved
 // outside of the wallet package.
-func (w *Wallet) synchronizeRPC(chainClient *chain.RPCClient,
+func (w *Wallet) synchronizeChain(chainClient chain.Client,
 	lifecycle func(session *Session) error) error {
 
 	// Only one session is allowed to run at a time.

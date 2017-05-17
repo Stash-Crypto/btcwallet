@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcjson"
-	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/chain/rpc"
 	"github.com/btcsuite/btcwallet/wallet"
 	"github.com/btcsuite/websocket"
 )
@@ -61,7 +61,7 @@ type Server struct {
 	httpServer    http.Server
 	session       *wallet.Session
 	walletLoader  *wallet.Loader
-	chainClient   *chain.RPCClient
+	rpcClient   *rpc.RPCClient
 	handlerLookup func(string) (requestHandler, bool)
 	handlerMu     sync.Mutex
 
@@ -87,7 +87,7 @@ func jsonAuthFail(w http.ResponseWriter) {
 
 // NewServer creates a new server for serving legacy RPC client connections,
 // both HTTP POST and websocket.
-func NewServer(opts *Options, walletLoader *wallet.Loader, listeners []net.Listener, chainClient *chain.RPCClient) *Server {
+func NewServer(opts *Options, walletLoader *wallet.Loader, listeners []net.Listener, rpcClient *rpc.RPCClient) *Server {
 	serveMux := http.NewServeMux()
 	const rpcAuthTimeoutSeconds = 10
 
@@ -99,7 +99,7 @@ func NewServer(opts *Options, walletLoader *wallet.Loader, listeners []net.Liste
 			// handshake within the allowed timeframe.
 			ReadTimeout: time.Second * rpcAuthTimeoutSeconds,
 		},
-		chainClient: chainClient, 
+		rpcClient: rpcClient, 
 		walletLoader:        walletLoader,
 		maxPostClients:      opts.MaxPOSTClients,
 		maxWebsocketClients: opts.MaxWebsocketClients,
@@ -260,7 +260,7 @@ func (s *Server) handlerClosure(request *btcjson.Request) lazyHandler {
 	session := s.session
 	s.handlerMu.Unlock()
 
-	return lazyApplyHandler(request, session.Wallet, session)
+	return lazyApplyHandler(request, session.Wallet, session, s.rpcClient)
 }
 
 // ErrNoAuth represents an error where authentication could not succeed

@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcwallet/chain"
+	"github.com/btcsuite/btcwallet/chain/rpc"
 	"github.com/btcsuite/btcwallet/rpc/legacyrpc"
 	"github.com/btcsuite/btcwallet/rpc/rpcserver"
 	"github.com/btcsuite/btcwallet/wallet"
@@ -104,7 +104,7 @@ func generateRPCKeyPair(writeKey bool) (tls.Certificate, error) {
 }
 
 func startRPCServers(walletLoader *wallet.Loader,
-	chainClient *chain.RPCClient,
+	rpcClient *rpc.RPCClient,
 	lifecycle func(*wallet.Session) error) (*grpc.Server, *legacyrpc.Server, error) {
 	var (
 		server       *grpc.Server
@@ -140,7 +140,7 @@ func startRPCServers(walletLoader *wallet.Loader,
 			creds := credentials.NewServerTLSFromCert(&keyPair)
 			server = grpc.NewServer(grpc.Creds(creds))
 			rpcserver.StartVersionService(server)
-			rpcserver.StartWalletLoaderService(server, walletLoader, activeNet, chainClient, lifecycle)
+			rpcserver.StartWalletLoaderService(server, walletLoader, activeNet, rpcClient, lifecycle)
 			for _, lis := range listeners {
 				lis := lis
 				go func() {
@@ -168,7 +168,7 @@ func startRPCServers(walletLoader *wallet.Loader,
 			MaxPOSTClients:      cfg.LegacyRPCMaxClients,
 			MaxWebsocketClients: cfg.LegacyRPCMaxWebsockets,
 		}
-		legacyServer = legacyrpc.NewServer(&opts, walletLoader, listeners, chainClient)
+		legacyServer = legacyrpc.NewServer(&opts, walletLoader, listeners, rpcClient)
 	}
 
 	// Error when neither the GRPC nor legacy RPC servers can be started.

@@ -111,7 +111,7 @@ type loaderServer struct {
 	loader      *wallet.Loader
 	activeNet   *netparams.Params
 	lifecycle   func(*wallet.Session) error
-	chainClient *chain.RPCClient
+	chainClient chain.Client
 	wallet      *wallet.Wallet
 	mu          sync.Mutex
 }
@@ -727,7 +727,7 @@ func (s *walletServer) AccountNotifications(req *pb.AccountNotificationsRequest,
 // StartWalletLoaderService creates an implementation of the WalletLoaderService
 // and registers it with the gRPC server.
 func StartWalletLoaderService(server *grpc.Server, loader *wallet.Loader,
-	activeNet *netparams.Params, chainClient *chain.RPCClient,
+	activeNet *netparams.Params, chainClient chain.Client,
 	lifecycle func(*wallet.Session) error) {
 
 	service := &loaderServer{

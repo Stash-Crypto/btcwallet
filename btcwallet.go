@@ -12,9 +12,9 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/wallet"
+	"github.com/btcsuite/btcwallet/chain/rpc"
 	"github.com/btcsuite/btcwallet/rpc/legacyrpc"
+	"github.com/btcsuite/btcwallet/wallet"
 	"google.golang.org/grpc"
 )
 
@@ -77,10 +77,10 @@ func walletMain() error {
 			return err
 		}
 	}
-	
-	var rpcs *grpc.Server 
+
+	var rpcs *grpc.Server
 	var legacyRPCServer *legacyrpc.Server
-	
+
 	lifecycle := func(ws *wallet.Session) error {
 		// All running rpc services are notified of the session's existence.
 		startWalletRPCServices(ws, rpcs, legacyRPCServer)
@@ -91,7 +91,7 @@ func walletMain() error {
 	}
 
 	// Attempt to dial into btcd.
-	chainClient, err := rpcClientDial()
+	rpcClient, err := rpcClientDial()
 	if err != nil {
 		log.Errorf("Failed to create rpc connection to btcd: %v", err)
 		return err
@@ -100,7 +100,7 @@ func walletMain() error {
 	// Create and start HTTP server to serve wallet client connections.
 	// This will be updated with the wallet and chain server RPC client
 	// created below after each is created.
-	rpcs, legacyRPCServer, err = startRPCServers(loader, chainClient, lifecycle)
+	rpcs, legacyRPCServer, err = startRPCServers(loader, rpcClient, lifecycle)
 	if err != nil {
 		log.Errorf("Unable to create RPC servers: %v", err)
 		return err
@@ -124,7 +124,7 @@ func walletMain() error {
 		if err != nil && err != wallet.ErrNotLoaded {
 			log.Errorf("Failed to close wallet: %v", err)
 		}
-		chainClient.Stop()
+		rpcClient.Stop()
 	})
 	if rpcs != nil {
 		addInterruptHandler(func() {
@@ -152,7 +152,7 @@ func walletMain() error {
 	return nil
 }
 
-func rpcClientDial() (*chain.RPCClient, error) {
+func rpcClientDial() (*rpc.RPCClient, error) {
 	return startChainRPC(readCAFile())
 }
 
@@ -179,9 +179,9 @@ func readCAFile() []byte {
 // services.  This function uses the RPC options from the global config and
 // there is no recovery in case the server is not available or if there is an
 // authentication error.  Instead, all requests to the client will simply error.
-func startChainRPC(certs []byte) (*chain.RPCClient, error) {
+func startChainRPC(certs []byte) (*rpc.RPCClient, error) {
 	log.Infof("Attempting RPC client connection to %v", cfg.RPCConnect)
-	rpcc, err := chain.NewRPCClient(activeNet.Params, cfg.RPCConnect,
+	rpcc, err := rpc.NewRPCClient(activeNet.Params, cfg.RPCConnect,
 		cfg.BtcdUsername, cfg.BtcdPassword, certs, cfg.DisableClientTLS, 0)
 	if err != nil {
 		return nil, err

@@ -207,7 +207,7 @@ func (l *Loader) LoadedWallet() (*Wallet, error) {
 	}
 }
 
-func (l *Loader) Session(client *chain.RPCClient, lifecycle func(*Session) error) (LoaderState, error) {
+func (l *Loader) Session(client chain.Client, lifecycle func(*Session) error) (LoaderState, error) {
 	defer l.mu.Unlock()
 	l.mu.Lock()
 
@@ -223,7 +223,7 @@ func (l *Loader) Session(client *chain.RPCClient, lifecycle func(*Session) error
 	connected := make(chan struct{})
 
 	go func() {
-		err := l.wallet.synchronizeRPC(client, func(s *Session) error {
+		err := l.wallet.synchronizeChain(client, func(s *Session) error {
 			// Because func Session does not close until chan connected is
 			// closed, we know that the lock is still locked.
 			l.session = s
