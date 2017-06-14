@@ -59,40 +59,40 @@ type SPV struct {
 	headers    *Headers
 	manager    *spvwallet.SPVManager
 	config     *Config
-	txStore    *TxStore
+	TxStore    *TxStore
 	timeSource blockchain.MedianTimeSource
 
 	enqueue chan chain.Notification
 	dequeue chan chain.Notification
 	quit    chan struct{}
 	wg      sync.WaitGroup
-	
+
 	// Whether to run in passive mode. In passive mode, the spv manager
-	// does not ask for new transactions. 
+	// does not ask for new transactions.
 	passive bool
 }
 
 func initializeHeaders(db walletdb.DB, params *chaincfg.Params) (*Headers, error) {
 	headers, err := NewHeaders(db)
-	
+
 	if err == nil {
 		return headers, nil
 	}
-			
-	// If there is a problem, delete the spv data and start over. 
+
+	// If there is a problem, delete the spv data and start over.
 	deleteSPVData(db)
 	headers, err = NewHeaders(db)
 	if err != nil {
 		return nil, err
 	}
-	
-	// Insert the genesis block. 
+
+	// Insert the genesis block.
 	headers.Put(spvwallet.StoredHeader{
-		Header: params.GenesisBlock.Header, 
-		Height: 0, 
+		Header:    params.GenesisBlock.Header,
+		Height:    0,
 		TotalWork: big.NewInt(0),
 	}, true)
-	
+
 	return headers, nil
 }
 
@@ -102,7 +102,7 @@ func New(accounts []uint32, db walletdb.DB, addrmgr *waddrmgr.Manager,
 	if config == nil || config.Peers == nil {
 		return nil, errors.New("Must include peer config parameters")
 	}
-	
+
 	params := config.Peers.Params
 
 	var err error
@@ -131,18 +131,18 @@ func New(accounts []uint32, db walletdb.DB, addrmgr *waddrmgr.Manager,
 		maxFilterNewMatches = spvwallet.DefaultMaxFilterNewMatches
 	}
 	spvconfig.MaxFilterNewMatches = maxFilterNewMatches
-	spv.txStore, err = newTxStore(accounts, headers, db,
+	spv.TxStore, err = NewTxStore(accounts, headers, db,
 		addrmgr, txs, params, maxFilterNewMatches, spv.enqueue)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	blockchain, err := spvwallet.NewBlockchain(headers, spvconfig.CreationDate, params)
 	if err != nil {
 		return nil, err
 	}
-	
-	spv.manager, err = spvwallet.NewSPVManager(spv.txStore, blockchain, config.Peers, spvconfig)
+
+	spv.manager, err = spvwallet.NewSPVManager(spv.TxStore, blockchain, config.Peers, spvconfig)
 	if err != nil {
 		return nil, err
 	}
@@ -196,11 +196,11 @@ func (spv *SPV) Activate() error {
 	if spv == nil {
 		return nil
 	}
-	
+
 	spv.passive = false
 
 	// Generate new filter.
-	f, err := spv.txStore.GimmeFilter()
+	f, err := spv.TxStore.GimmeFilter()
 	if err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func (spv *SPV) Deactivate() error {
 	if spv == nil {
 		return nil
 	}
-	
+
 	spv.passive = true
 
 	return spv.manager.PeerManager.FilterLoad(BlankFilter().MsgFilterLoad())
@@ -303,16 +303,16 @@ func (spv *SPV) handler() error {
 }
 
 func (spv *SPV) rollback(lastGoodHeight uint32) error {
-	err := spvwallet.ProcessReorg(spv.txStore, lastGoodHeight)
+	err := spvwallet.ProcessReorg(spv.TxStore, lastGoodHeight)
 	if err != nil {
 		return err
 	}
-	
-	err = spv.txStore.txStore.Rollback(int32(lastGoodHeight) + 1)
+
+	err = spv.TxStore.txStore.Rollback(int32(lastGoodHeight) + 1)
 	if err != nil {
 		return err
 	}
-	
+
 	return rollback(spv.headers, lastGoodHeight)
 }
 
@@ -374,14 +374,14 @@ func (spv *SPV) GetBlockVerbose(blockHash *chainhash.Hash) (*btcjson.GetBlockVer
 	if err != nil {
 		return nil, err
 	}
-	
+
 	sh, err := spv.headers.GetHeader(*blockHash)
 	if err != nil {
 		return nil, err
 	}
 	blockHeader := sh.Header
-	
-	return &btcjson.GetBlockVerboseResult {
+
+	return &btcjson.GetBlockVerboseResult{
 		Version:       blockHeader.Version,
 		VersionHex:    fmt.Sprintf("%08x", blockHeader.Version),
 		MerkleRoot:    blockHeader.MerkleRoot.String(),
@@ -391,10 +391,11 @@ func (spv *SPV) GetBlockVerbose(blockHash *chainhash.Hash) (*btcjson.GetBlockVer
 		Bits:          strconv.FormatInt(int64(blockHeader.Bits), 16),
 		Difficulty:    spv.getDifficultyRatio(blockHeader.Bits),
 		Confirmations: uint64(1 + best.Height - sh.Height),
-		Hash: blockHash.String(), 
-		Height: int64(sh.Height), 
+		Hash:          blockHash.String(),
+		Height:        int64(sh.Height),
 	}, nil
 }
+
 // GetBlockHash returns the hash of the block in the best block chain at the
 // given height.
 func (spv *SPV) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
@@ -437,10 +438,10 @@ func (spv *SPV) RescanBlocks(blockHashes []chainhash.Hash) ([]btcjson.RescannedB
 //
 // TODO
 func (spv *SPV) NotifyBlocks() error {
-	return spv.txStore.notifyBlocks()
+	return spv.TxStore.notifyBlocks()
 }
 
-// TODO update comment. 
+// TODO update comment.
 // NotifyReceived registers the client to receive notifications every time a
 // new transaction which pays to one of the passed addresses is accepted to
 // memory pool or in a block connected to the block chain.  In addition, when
@@ -464,12 +465,12 @@ func (spv *SPV) NotifyReceived(addresses []btcutil.Address) error {
 	if spv.passive {
 		return nil
 	}
-	
-	f, err := spv.txStore.GimmeFilter()
+
+	f, err := spv.TxStore.GimmeFilter()
 	if err != nil {
 		return err
 	}
-	
+
 	return spv.manager.PeerManager.FilterLoad(f.MsgFilterLoad())
 }
 

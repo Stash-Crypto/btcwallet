@@ -41,6 +41,7 @@ var (
 	defaultRPCKeyFile  = filepath.Join(defaultAppDataDir, "rpc.key")
 	defaultRPCCertFile = filepath.Join(defaultAppDataDir, "rpc.cert")
 	defaultLogDir      = filepath.Join(defaultAppDataDir, defaultLogDirname)
+	defaultChainQueryMode = "rpc"
 )
 
 type config struct {
@@ -101,7 +102,6 @@ type config struct {
 
 	// Experimental SPV options.
 	ChainQueryMode string `long:"chainquery" description:"How to query the blockchain. Options are 'rpc', 'spv', and 'spvfallback'"`
-
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -263,6 +263,7 @@ func loadConfig() (*config, []string, error) {
 		LegacyRPCMaxClients:    defaultRPCMaxClients,
 		LegacyRPCMaxWebsockets: defaultRPCMaxWebsockets,
 		DataDir:                cfgutil.NewExplicitString(defaultAppDataDir),
+		ChainQueryMode:         defaultChainQueryMode, 
 	}
 
 	// Pre-parse the command line options to see if an alternative config

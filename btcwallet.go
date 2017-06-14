@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/chain/rpc"
 	"github.com/btcsuite/btcwallet/chain/spv"
+	"github.com/btcsuite/btcwallet/chain/spvfallback"
 	"github.com/btcsuite/btcwallet/rpc/legacyrpc"
 	"github.com/btcsuite/btcwallet/wallet"
 	"google.golang.org/grpc"
@@ -191,6 +192,21 @@ func walletMain() error {
 		addInterruptHandler(func() {
 			rpcClient.Stop()
 		})
+	case "spvfallback":
+		// In fallback mode, we create both an rpc connection and an spv
+		// connection to use as a back-up if something goes wrong with the
+		// spv server.
+		rpcClient, err = rpcSetup()
+		if err != nil {
+			return err
+		}
+
+		spvClient, err := spvSetup()
+		if err != nil {
+			return err
+		}
+
+		chainClient = spvfallback.New(rpcClient, spvClient)
 	default:
 		return errors.New("Unrecognized chainquery mode option.")
 	}

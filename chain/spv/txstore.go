@@ -22,6 +22,9 @@ import (
 	"github.com/btcsuite/btcwallet/wtxmgr"
 )
 
+// FilterBuffer
+const FilterBuffer = 10
+
 var (
 	metaBucket     = []byte("txmetabucket")
 	errNoMetaFound = errors.New("No meta found")
@@ -52,6 +55,9 @@ type TxStore struct {
 	notifications chan<- chain.Notification
 
 	maxNewFilterMatches uint32
+
+	// Whether to run in passive mode. In passive mode, no
+	passive bool
 }
 
 var _ spvwallet.TxStore = (*TxStore)(nil)
@@ -72,7 +78,7 @@ func btob(b bool) byte {
 	return 0
 }
 
-func newTxStore(accounts []uint32,
+func NewTxStore(accounts []uint32,
 	headers *Headers,
 	db walletdb.DB,
 	addrmgr *waddrmgr.Manager,
@@ -350,6 +356,11 @@ func (tx *TxStore) Ingest(t *wire.MsgTx, height int32) (uint32, error) {
 
 // GimmeFilter constructs the bloom filter.
 func (tx *TxStore) GimmeFilter() (*bloom.Filter, error) {
+	// If we are running in passive mode, return an empty filter.
+	if tx.passive {
+		return bloom.NewFilter(1, 5, 0.001, wire.BloomUpdateNone), nil
+	}
+
 	addresses := make([]btcutil.Address, 0)
 	for _, account := range tx.accounts {
 		err := tx.wmgr.ForEachActiveAccountAddress(account, func(maddr waddrmgr.ManagedAddress) error {
@@ -366,8 +377,8 @@ func (tx *TxStore) GimmeFilter() (*bloom.Filter, error) {
 		return nil, err
 	}
 
-	// First make a bloom builder.
-	f := bloom.NewFilter(uint32(len(outputs)+len(addresses)), 3, 0.0001, wire.BloomUpdateAll)
+	// Make a bloom builder.
+	f := bloom.NewFilter(uint32(len(outputs)+len(addresses))+tx.maxNewFilterMatches, 3, 0.00001, wire.BloomUpdateAll)
 
 	for _, address := range addresses {
 		f.Add(address.ScriptAddress())
