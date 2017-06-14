@@ -8,10 +8,8 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/OpenBazaar/spvwallet"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcwallet/chain"
-	"github.com/btcsuite/btcwallet/chain/spv"
 	"github.com/btcsuite/btcwallet/internal/prompt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
@@ -111,14 +109,6 @@ func noConsole() ([]byte, error) {
 
 func defaultPassword() ([]byte, error) {
 	return []byte(waddrmgr.InsecurePrivPassphrase), nil
-}
-
-func (l *Loader) LoadSPVClient(accounts []uint32, config *spvwallet.PeerManagerConfig) (*spv.SPV, error) {
-	if l.wallet == nil {
-		return nil, ErrNotLoaded
-	}
-
-	return spv.New(accounts, l.db, l.wallet.Manager, l.wallet.TxStore, config)
 }
 
 // OpenExistingWallet opens the wallet from the loader's wallet database path

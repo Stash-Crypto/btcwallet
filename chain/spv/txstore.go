@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/OpenBazaar/spvwallet"
+	"github.com/OpenBazaar/wallet-interface"
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -49,6 +50,8 @@ type TxStore struct {
 
 	notifyRec     map[string]struct{}
 	notifications chan<- chain.Notification
+
+	maxNewFilterMatches uint32
 }
 
 var _ spvwallet.TxStore = (*TxStore)(nil)
@@ -74,7 +77,9 @@ func newTxStore(accounts []uint32,
 	db walletdb.DB,
 	addrmgr *waddrmgr.Manager,
 	txs *wtxmgr.Store,
-	param *chaincfg.Params, notifications chan<- chain.Notification) (*TxStore, error) {
+	param *chaincfg.Params,
+	maxNewFilterMatches uint32,
+	notifications chan<- chain.Notification) (*TxStore, error) {
 	namespace, err := db.Namespace(spvNamespace)
 	if err != nil {
 		return nil, err
@@ -89,13 +94,14 @@ func newTxStore(accounts []uint32,
 	}
 
 	return &TxStore{
-		accounts:      accounts,
-		wmgr:          addrmgr,
-		txStore:       txs,
-		headers:       headers,
-		db:            namespace,
-		param:         param,
-		notifications: notifications,
+		accounts:            accounts,
+		wmgr:                addrmgr,
+		txStore:             txs,
+		headers:             headers,
+		db:                  namespace,
+		param:               param,
+		notifications:       notifications,
+		maxNewFilterMatches: maxNewFilterMatches,
 	}, nil
 }
 
@@ -150,7 +156,7 @@ func (tm *txMeta) Decode(r io.Reader) error {
 	return nil
 }
 
-func toSpvTxn(m *txMeta, r *wtxmgr.TxRecord) *spvwallet.Txn {
+func toSpvTxn(m *txMeta, r *wtxmgr.TxRecord) *wallet.Txn {
 	var serialized []byte
 	if r.SerializedTx == nil {
 		buf := bytes.NewBuffer(make([]byte, 0, r.MsgTx.SerializeSize()))
@@ -160,7 +166,7 @@ func toSpvTxn(m *txMeta, r *wtxmgr.TxRecord) *spvwallet.Txn {
 		serialized = r.SerializedTx
 	}
 
-	return &spvwallet.Txn{
+	return &wallet.Txn{
 		Txid:      m.id,
 		Value:     m.value,
 		Height:    int32(m.height),
@@ -237,53 +243,13 @@ func (tx *TxStore) getMetaOrCreateNew(txRecord *wtxmgr.TxDetails) (*txMeta, erro
 	return meta, nil
 }
 
-// Ingest puts a tx into the DB atomically.  This can result in a
-// gain, a loss, or no result.  Gain or loss in satoshis is returned.
-func (tx *TxStore) Ingest(t *wire.MsgTx, height int32) (uint32, error) {
-	// Create a TxRecord for this transaction.
-	txRecord, err := wtxmgr.NewTxRecordFromMsgTx(t, time.Now())
-	if err != nil {
-		return 0, err
-	}
-
-	// Check whether the tx already exists.
-	var details *wtxmgr.TxDetails
-	details, err = tx.txStore.TxDetails(&txRecord.Hash)
-	if err != nil {
-		return 0, err
-	}
-
-	if details != nil {
-		return uint32(len(details.Credits) + len(details.Debits)), nil
-	}
-
+func calculateHits(tx *TxStore, t *wire.MsgTx, height int32) (uint32, error) {
 	// Tx has been OK'd by SPV; check tx sanity
 	utilTx := btcutil.NewTx(t) // convert for validation
 	// Checks basic stuff like there are inputs and ouputs
-	err = blockchain.CheckTransactionSanity(utilTx)
+	err := blockchain.CheckTransactionSanity(utilTx)
 	if err != nil {
 		return 0, err
-	}
-
-	now := time.Now()
-
-	// Construct the BlockMeta object. The database requires this to
-	// insert the tx.
-	var blockMeta *wtxmgr.BlockMeta
-	if height != 0 {
-		if height >= 0 {
-			header, err := tx.headers.GetBlockAtHeight(uint32(height))
-			if err != nil {
-				return 0, err
-			}
-			blockMeta = &wtxmgr.BlockMeta{
-				Block: wtxmgr.Block{
-					Hash:   header.Header.BlockHash(),
-					Height: height,
-				},
-				Time: now,
-			}
-		}
 	}
 
 	// Check every output to determine whether it is controlled by a wallet
@@ -321,11 +287,54 @@ func (tx *TxStore) Ingest(t *wire.MsgTx, height int32) (uint32, error) {
 		return 0, err
 	}
 
-	// If there are no credits or debits with this tx, don't insert
-	// it into the database.
-	hits := uint32(len(debits) + len(credits))
-	if hits == 0 {
-		return 0, nil
+	return uint32(len(debits) + len(credits)), nil
+}
+
+// Ingest puts a tx into the DB atomically.  This can result in a
+// gain, a loss, or no result.  Gain or loss in satoshis is returned.
+func (tx *TxStore) Ingest(t *wire.MsgTx, height int32) (uint32, error) {
+	// Create a TxRecord for this transaction.
+	txRecord, err := wtxmgr.NewTxRecordFromMsgTx(t, time.Now())
+	if err != nil {
+		return 0, err
+	}
+
+	// Check whether the tx already exists.
+	var details *wtxmgr.TxDetails
+	details, err = tx.txStore.TxDetails(&txRecord.Hash)
+	if err != nil {
+		return 0, err
+	}
+
+	now := time.Now()
+
+	// Construct the BlockMeta object. The database requires this to
+	// insert the tx.
+	var blockMeta *wtxmgr.BlockMeta
+	if height != 0 {
+		if height >= 0 {
+			header, err := tx.headers.GetBlockAtHeight(uint32(height))
+			if err != nil {
+				return 0, err
+			}
+			blockMeta = &wtxmgr.BlockMeta{
+				Block: wtxmgr.Block{
+					Hash:   header.Header.BlockHash(),
+					Height: height,
+				},
+				Time: now,
+			}
+		}
+	}
+
+	var hits uint32
+	if details == nil {
+		hits, err = calculateHits(tx, t, height)
+	} else {
+		hits = uint32(len(details.Credits) + len(details.Debits))
+	}
+	if err != nil {
+		return 0, err
 	}
 
 	// Insert into database.
@@ -366,7 +375,6 @@ func (tx *TxStore) GimmeFilter() (*bloom.Filter, error) {
 
 	for _, op := range outputs {
 		f.AddOutPoint(&op.OutPoint)
-		println("Adding outpoint ", op.String())
 	}
 
 	records, err := GetAllTransactions(tx.txStore)
@@ -376,7 +384,7 @@ func (tx *TxStore) GimmeFilter() (*bloom.Filter, error) {
 
 	details, err := tx.getAllTxs(records, true)
 
-	important := make([]spvwallet.Txn, 0)
+	important := make([]wallet.Txn, 0)
 	value := int64(0)
 	for _, txn := range details {
 		if txn.Value != 0 {
@@ -386,6 +394,11 @@ func (tx *TxStore) GimmeFilter() (*bloom.Filter, error) {
 	}
 
 	return f, nil
+}
+
+// BlankFilter makes a blank bloom filter.
+func BlankFilter() *bloom.Filter {
+	return bloom.NewFilter(1, 5, 0.001, wire.BloomUpdateNone)
 }
 
 // GetPendingInv returns an inv message containing all txs known to the
@@ -427,17 +440,21 @@ func (tx *TxStore) MarkAsDead(txid chainhash.Hash) error {
 }
 
 // GetTx fetch a raw tx and its metadata given a hash
-func (tx *TxStore) GetTx(txid chainhash.Hash) (*wire.MsgTx, spvwallet.Txn, error) {
+func (tx *TxStore) GetTx(txid chainhash.Hash) (*wire.MsgTx, wallet.Txn, error) {
 	// Get the transaction from the wallet txmgr.
 	txDetails, err := tx.txStore.TxDetails(&txid)
 	if err != nil {
-		return nil, spvwallet.Txn{}, err
+		return nil, wallet.Txn{}, err
+	}
+
+	if txDetails == nil {
+		return nil, wallet.Txn{}, nil
 	}
 
 	// Get the metadata.
 	txMeta, err := tx.getMetaOrCreateNew(txDetails)
 	if err != nil {
-		return nil, spvwallet.Txn{}, nil
+		return nil, wallet.Txn{}, nil
 	}
 
 	// Return the tx.
@@ -460,8 +477,8 @@ func GetAllTransactions(s *wtxmgr.Store) (map[chainhash.Hash]*wtxmgr.TxDetails, 
 	return records, nil
 }
 
-func (tx *TxStore) getAllTxs(records map[chainhash.Hash]*wtxmgr.TxDetails, includeWatchOnly bool) ([]spvwallet.Txn, error) {
-	txns := make([]spvwallet.Txn, 0, len(records))
+func (tx *TxStore) getAllTxs(records map[chainhash.Hash]*wtxmgr.TxDetails, includeWatchOnly bool) ([]wallet.Txn, error) {
+	txns := make([]wallet.Txn, 0, len(records))
 	for _, r := range records {
 		meta, err := tx.getMetaOrCreateNew(r)
 		if err != nil {
@@ -477,7 +494,7 @@ func (tx *TxStore) getAllTxs(records map[chainhash.Hash]*wtxmgr.TxDetails, inclu
 }
 
 // GetAllTxs fetches all transactions from the db.
-func (tx *TxStore) GetAllTxs(includeWatchOnly bool) ([]spvwallet.Txn, error) {
+func (tx *TxStore) GetAllTxs(includeWatchOnly bool) ([]wallet.Txn, error) {
 	records, err := GetAllTransactions(tx.txStore)
 	if err != nil {
 		return nil, err
@@ -499,28 +516,5 @@ func (tx *TxStore) GetAllTxs(includeWatchOnly bool) ([]spvwallet.Txn, error) {
 //
 // TODO
 func (tx *TxStore) notifyBlocks() error {
-	return ErrNotImplemented
-}
-
-// notifyReceived registers the client to receive notifications every time a
-// new transaction which pays to one of the passed addresses is accepted to
-// memory pool or in a block connected to the block chain.  In addition, when
-// one of these transactions is detected, the client is also automatically
-// registered for notifications when the new transaction outpoints the address
-// now has available are spent (See NotifySpent).  The notifications are
-// delivered to the notification handlers associated with the client.  Calling
-// this function has no effect if there are no notification handlers and will
-// result in an error if the client is configured to run in HTTP POST mode.
-//
-// The notifications delivered as a result of this call will be via one of
-// *OnRecvTx (for transactions that receive funds to one of the passed
-// addresses) or OnRedeemingTx (for transactions which spend from one
-// of the outpoints which are automatically registered upon receipt of funds to
-// the address).
-//
-// NOTE: This is a btcd extension and requires a websocket connection.
-//
-// NOTE: Deprecated. Use LoadTxFilter instead.
-func (tx *TxStore) notifyReceived(addresses []btcutil.Address) error {
 	return ErrNotImplemented
 }

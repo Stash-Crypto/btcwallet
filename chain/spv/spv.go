@@ -3,10 +3,15 @@ package spv
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math/big"
+	"strconv"
 	"sync"
 
 	"github.com/OpenBazaar/spvwallet"
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcjson"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/peer"
 	"github.com/btcsuite/btcd/rpcclient"
@@ -28,82 +33,138 @@ var (
 	ErrInvalidSPVRequest = errors.New("This function does not work in spv mode.")
 )
 
+type Config struct {
+	// The version to be returned from a getinfo request.
+	Version int32
+
+	//
+	Proxy string
+
+	//
+	MinRelayTxFee btcutil.Amount
+
+	// Whether to start in passive mode.
+	Passive *bool
+
+	// The maximum number of
+	MaxFilterNewMatches *uint32
+
+	// Config for the spvwallet Peers type.
+	Peers *spvwallet.PeerManagerConfig
+}
+
 // SPV is a way of queryng the blockchain that relies on being
 // connected to other peers and using the spv protocol.
 type SPV struct {
-	headers *Headers
-	manager *spvwallet.SPVManager
-	config  *spvwallet.PeerManagerConfig
-	txStore *TxStore
+	headers    *Headers
+	manager    *spvwallet.SPVManager
+	config     *Config
+	txStore    *TxStore
+	timeSource blockchain.MedianTimeSource
 
 	enqueue chan chain.Notification
 	dequeue chan chain.Notification
 	quit    chan struct{}
 	wg      sync.WaitGroup
+	
+	// Whether to run in passive mode. In passive mode, the spv manager
+	// does not ask for new transactions. 
+	passive bool
+}
+
+func initializeHeaders(db walletdb.DB, params *chaincfg.Params) (*Headers, error) {
+	headers, err := NewHeaders(db)
+	
+	if err == nil {
+		return headers, nil
+	}
+			
+	// If there is a problem, delete the spv data and start over. 
+	deleteSPVData(db)
+	headers, err = NewHeaders(db)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Insert the genesis block. 
+	headers.Put(spvwallet.StoredHeader{
+		Header: params.GenesisBlock.Header, 
+		Height: 0, 
+		TotalWork: big.NewInt(0),
+	}, true)
+	
+	return headers, nil
 }
 
 // New creates a new SPV type.
 func New(accounts []uint32, db walletdb.DB, addrmgr *waddrmgr.Manager,
-	txs *wtxmgr.Store, config *spvwallet.PeerManagerConfig) (*SPV, error) {
+	txs *wtxmgr.Store, config *Config) (*SPV, error) {
+	if config == nil || config.Peers == nil {
+		return nil, errors.New("Must include peer config parameters")
+	}
+	
+	params := config.Peers.Params
 
 	var err error
 
-	println("About to delete spv data.")
-
-	deleteSPVData(db)
-
-	headers, err := NewHeaders(db)
+	headers, err := initializeHeaders(db, params)
 	if err != nil {
 		return nil, err
 	}
 
-	spvconfig := &spvwallet.Config{
-		CreationDate:        headers.CreationDate(),
-		MaxFilterNewMatches: spvwallet.DefaultMaxFilterNewMatches,
+	spv := &SPV{
+		config:     config,
+		headers:    headers,
+		timeSource: blockchain.NewMedianTime(),
+		enqueue:    make(chan chain.Notification),
+		dequeue:    make(chan chain.Notification),
+		quit:       make(chan struct{}),
 	}
-	/*var maxFilterNewMatches uint32
+
+	var maxFilterNewMatches uint32
+	spvconfig := &spvwallet.Config{
+		CreationDate: headers.CreationDate(),
+	}
 	if config.MaxFilterNewMatches != nil {
 		maxFilterNewMatches = *config.MaxFilterNewMatches
 	} else {
 		maxFilterNewMatches = spvwallet.DefaultMaxFilterNewMatches
 	}
-	spvconfig.MaxFilterNewMatches = spvwallet.DefaultMaxFilterNewMatches
+	spvconfig.MaxFilterNewMatches = maxFilterNewMatches
 	spv.txStore, err = newTxStore(accounts, headers, db,
 		addrmgr, txs, params, maxFilterNewMatches, spv.enqueue)
 	if err != nil {
 		return nil, err
-	}*/
-
-	spv := &SPV{
-		config:  config,
-		headers: headers,
-		enqueue: make(chan chain.Notification),
-		dequeue: make(chan chain.Notification),
-		quit:    make(chan struct{}),
 	}
-
-	blockchain, err := spvwallet.NewBlockchain(headers, spvconfig.CreationDate, config.Params)
+	
+	blockchain, err := spvwallet.NewBlockchain(headers, spvconfig.CreationDate, params)
+	if err != nil {
+		return nil, err
+	}
+	
+	spv.manager, err = spvwallet.NewSPVManager(spv.txStore, blockchain, config.Peers, spvconfig)
 	if err != nil {
 		return nil, err
 	}
 
-	spv.txStore, err = newTxStore(accounts, headers, db,
-		addrmgr, txs, config.Params, spv.enqueue)
-	if err != nil {
-		return nil, err
-	}
-	spv.config.GetFilter = spv.txStore.GimmeFilter
-	spv.manager, err = spvwallet.NewSPVManager(spv.txStore, blockchain, spv.config, spvconfig)
-	if err != nil {
-		return nil, err
-	}
-
-	spv.config.Listeners = &peer.MessageListeners{
+	spv.config.Peers.Listeners = &peer.MessageListeners{
+		OnVersion: func(p *peer.Peer, m *wire.MsgVersion) {
+			spv.timeSource.AddTimeSample(p.Addr(), m.Timestamp)
+		},
 		OnMerkleBlock: spv.manager.OnMerkleBlock,
 		OnInv:         spv.manager.OnInv,
 		OnTx:          spv.manager.OnTx,
 		OnGetData:     spv.manager.OnGetData,
 	}
+
+	if config.Passive != nil && *config.Passive == true {
+		spv.Deactivate()
+	} else {
+		spv.Activate()
+	}
+
+	// Set the headers to notify the wallet when there is a new block.
+	headers.notifications = spv.enqueue
 
 	return spv, nil
 }
@@ -126,8 +187,36 @@ func (spv *SPV) WaitForShutdown() {
 // started by Start.
 func (spv *SPV) Stop() {
 	spv.manager.Close()
+	spv.headers.Close()
 	close(spv.quit)
 	close(spv.enqueue)
+}
+
+func (spv *SPV) Activate() error {
+	if spv == nil {
+		return nil
+	}
+	
+	spv.passive = false
+
+	// Generate new filter.
+	f, err := spv.txStore.GimmeFilter()
+	if err != nil {
+		return err
+	}
+
+	// Send the filter around to everybody.
+	return spv.manager.PeerManager.FilterLoad(f.MsgFilterLoad())
+}
+
+func (spv *SPV) Deactivate() error {
+	if spv == nil {
+		return nil
+	}
+	
+	spv.passive = true
+
+	return spv.manager.PeerManager.FilterLoad(BlankFilter().MsgFilterLoad())
 }
 
 // handler maintains a queue of notifications and the current state (best
@@ -213,6 +302,20 @@ func (spv *SPV) handler() error {
 	}
 }
 
+func (spv *SPV) rollback(lastGoodHeight uint32) error {
+	err := spvwallet.ProcessReorg(spv.txStore, lastGoodHeight)
+	if err != nil {
+		return err
+	}
+	
+	err = spv.txStore.txStore.Rollback(int32(lastGoodHeight) + 1)
+	if err != nil {
+		return err
+	}
+	
+	return rollback(spv.headers, lastGoodHeight)
+}
+
 // SendRawTransaction submits the encoded transaction to the server which will
 // then relay it to the network.
 func (spv *SPV) SendRawTransaction(tx *wire.MsgTx, alloHighFees bool) (*chainhash.Hash, error) {
@@ -267,9 +370,31 @@ func (spv *SPV) GetBestBlock() (*chainhash.Hash, int32, error) {
 // See GetBlockVerboseTx to retrieve transaction data structures as well.
 // See GetBlock to retrieve a raw block instead.
 func (spv *SPV) GetBlockVerbose(blockHash *chainhash.Hash) (*btcjson.GetBlockVerboseResult, error) {
-	return nil, ErrNotImplemented
+	best, err := spv.headers.GetBestHeader()
+	if err != nil {
+		return nil, err
+	}
+	
+	sh, err := spv.headers.GetHeader(*blockHash)
+	if err != nil {
+		return nil, err
+	}
+	blockHeader := sh.Header
+	
+	return &btcjson.GetBlockVerboseResult {
+		Version:       blockHeader.Version,
+		VersionHex:    fmt.Sprintf("%08x", blockHeader.Version),
+		MerkleRoot:    blockHeader.MerkleRoot.String(),
+		PreviousHash:  blockHeader.PrevBlock.String(),
+		Nonce:         blockHeader.Nonce,
+		Time:          blockHeader.Timestamp.Unix(),
+		Bits:          strconv.FormatInt(int64(blockHeader.Bits), 16),
+		Difficulty:    spv.getDifficultyRatio(blockHeader.Bits),
+		Confirmations: uint64(1 + best.Height - sh.Height),
+		Hash: blockHash.String(), 
+		Height: int64(sh.Height), 
+	}, nil
 }
-
 // GetBlockHash returns the hash of the block in the best block chain at the
 // given height.
 func (spv *SPV) GetBlockHash(blockHeight int64) (*chainhash.Hash, error) {
@@ -315,6 +440,7 @@ func (spv *SPV) NotifyBlocks() error {
 	return spv.txStore.notifyBlocks()
 }
 
+// TODO update comment. 
 // NotifyReceived registers the client to receive notifications every time a
 // new transaction which pays to one of the passed addresses is accepted to
 // memory pool or in a block connected to the block chain.  In addition, when
@@ -335,15 +461,59 @@ func (spv *SPV) NotifyBlocks() error {
 //
 // NOTE: Deprecated. Use LoadTxFilter instead.
 func (spv *SPV) NotifyReceived(addresses []btcutil.Address) error {
-	return spv.txStore.notifyReceived(addresses)
+	if spv.passive {
+		return nil
+	}
+	
+	f, err := spv.txStore.GimmeFilter()
+	if err != nil {
+		return err
+	}
+	
+	return spv.manager.PeerManager.FilterLoad(f.MsgFilterLoad())
 }
 
 func (spv *SPV) GetBlockVerboseAsync(blockHash *chainhash.Hash) rpcclient.FutureGetBlockVerboseResult {
 	panic("Not implemented.")
 }
 
+// getDifficultyRatio returns the proof-of-work difficulty as a multiple of the
+// minimum difficulty using the passed bits field from the header of a block.
+func (spv *SPV) getDifficultyRatio(bits uint32) float64 {
+	// The minimum difficulty is the max possible proof-of-work limit bits
+	// converted back to a number.  Note this is not the same as the proof of
+	// work limit directly because the block difficulty is encoded in a block
+	// with the compact form which loses precision.
+	max := blockchain.CompactToBig(spv.config.Peers.Params.PowLimitBits)
+	target := blockchain.CompactToBig(bits)
+
+	difficulty := new(big.Rat).SetFrac(max, target)
+	outString := difficulty.FloatString(8)
+	diff, err := strconv.ParseFloat(outString, 64)
+	if err != nil {
+		//rpcsLog.Errorf("Cannot get difficulty: %v", err)
+		return 0
+	}
+	return diff
+}
+
+//
 func (spv *SPV) GetInfo() (*btcjson.InfoWalletResult, error) {
-	return nil, ErrNotImplemented
+	best, err := spv.headers.GetBestHeader()
+	if err != nil {
+		return nil, err
+	}
+	return &btcjson.InfoWalletResult{
+		Version:         spv.config.Version,
+		ProtocolVersion: int32(peer.MaxProtocolVersion),
+		Blocks:          int32(best.Height),
+		TimeOffset:      int64(spv.timeSource.Offset().Seconds()),
+		Connections:     int32(len(spv.manager.PeerManager.ReadyPeers())),
+		Proxy:           spv.config.Proxy,
+		Difficulty:      spv.getDifficultyRatio(best.Header.Bits),
+		TestNet:         spv.config.Peers.Params == &chaincfg.TestNet3Params,
+		RelayFee:        spv.config.MinRelayTxFee.ToBTC(),
+	}, nil
 }
 
 func (spv *SPV) GetTxOutAsync(txHash *chainhash.Hash, index uint32, mempool bool) rpcclient.FutureGetTxOutResult {

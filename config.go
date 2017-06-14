@@ -100,7 +100,8 @@ type config struct {
 	DataDir *cfgutil.ExplicitString `short:"b" long:"datadir" default-mask:"-" description:"DEPRECATED -- use appdata instead"`
 
 	// Experimental SPV options.
-	SPV bool `long:"spv" description:"Run in spv mode."`
+	ChainQueryMode string `long:"chainquery" description:"How to query the blockchain. Options are 'rpc', 'spv', and 'spvfallback'"`
+
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the

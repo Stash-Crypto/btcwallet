@@ -247,6 +247,7 @@ func makeListeners(normalizedListenAddrs []string, listen listenFunc) []net.List
 // registers the WalletService service, and for the legacy JSON-RPC server it
 // enables methods that require a loaded wallet.
 func startWalletRPCServices(walletSession *wallet.Session, server *grpc.Server, legacyServer *legacyrpc.Server) {
+	println("startWalletRPCServices called.")
 	if server != nil {
 		rpcserver.StartWalletService(server, walletSession)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/walletdb"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 )
 
 var (
@@ -163,7 +164,7 @@ func (h *Headers) Put(sh spvwallet.StoredHeader, newBestHeader bool) error {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 
-	return h.db.Update(func(tx walletdb.Tx) error {
+	err := h.db.Update(func(tx walletdb.Tx) error {
 		hdrs := tx.RootBucket().Bucket(spvwallet.BKTHeaders)
 		ser, err := spvwallet.SerializeHeader(sh)
 		if err != nil {
@@ -190,6 +191,20 @@ func (h *Headers) Put(sh spvwallet.StoredHeader, newBestHeader bool) error {
 		h.chain[sh.Height] = &hash
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	// Send a notification if the notification channel exists.
+	if h.notifications != nil {
+		h.notifications <- chain.BlockConnected(wtxmgr.BlockMeta{
+			Block: wtxmgr.Block{
+				Hash:   sh.Header.BlockHash(),
+				Height: int32(sh.Height),
+			},
+			Time: time.Now(),
+		})
+	}
+	return nil
 }
 
 func (h *Headers) CreationDate() time.Time {
@@ -329,4 +344,13 @@ func (h *Headers) Close() error {
 
 		return nil
 	})
+}
+
+func rollback(h *Headers, lastGoodHeight uint32) error {
+	sh, err := h.GetBlockAtHeight(lastGoodHeight)
+	if err != nil {
+		return err
+	}
+	
+	return h.Put(sh, true)
 }
