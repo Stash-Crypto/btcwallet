@@ -1537,7 +1537,7 @@ var _ grpc.ClientConn
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the grpc package it is being compiled against.
-const _ = grpc.SupportPackageIsVersion4
+//const _ = grpc.SupportPackageIsVersion4
 
 // Client API for VersionService service
 
