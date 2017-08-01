@@ -6,8 +6,6 @@ package wallet
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/btcsuite/btcd/chaincfg"
@@ -15,10 +13,6 @@ import (
 	"github.com/btcsuite/btcwallet/internal/prompt"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/walletdb"
-)
-
-const (
-	walletDbName = "wallet.db"
 )
 
 var (
@@ -61,18 +55,17 @@ type Loader struct {
 	mu          sync.Mutex
 	state       LoaderState
 	chainParams *chaincfg.Params
-	dbDirPath   string
 	db          walletdb.DB
 	wallet      *Wallet
 	session     *Session
 }
 
 // NewLoader constructs a Loader.
-func NewLoader(chainParams *chaincfg.Params, dbDirPath string) *Loader {
+func NewLoader(chainParams *chaincfg.Params, db walletdb.DB) *Loader {
 	return &Loader{
 		state:       LoaderEmpty,
 		chainParams: chainParams,
-		dbDirPath:   dbDirPath,
+		db:          db,
 	}
 }
 
@@ -92,33 +85,14 @@ func (l *Loader) CreateNewWallet(pubPassphrase, privPassphrase, seed []byte) (Lo
 		return LoaderLoaded, ErrLoaded
 	}
 
-	dbPath := filepath.Join(l.dbDirPath, walletDbName)
-	exists, err := fileExists(dbPath)
-	if err != nil {
-		return l.state, err
-	}
-	if exists {
-		return l.state, ErrExists
-	}
-
-	// Create the wallet database backed by bolt db.
-	err = os.MkdirAll(l.dbDirPath, 0700)
-	if err != nil {
-		return l.state, err
-	}
-	db, err := walletdb.Create("bdb", dbPath)
-	if err != nil {
-		return l.state, err
-	}
-
 	// Initialize the newly created database for the wallet before opening.
-	err = Create(db, pubPassphrase, privPassphrase, seed, l.chainParams)
+	err := Create(l.db, pubPassphrase, privPassphrase, seed, l.chainParams)
 	if err != nil {
 		return l.state, err
 	}
 
 	// Open the newly-created wallet.
-	w, err := Open(db, pubPassphrase, nil, l.chainParams)
+	w, err := Open(l.db, pubPassphrase, nil, l.chainParams)
 	if err != nil {
 		return l.state, err
 	}
@@ -150,19 +124,6 @@ func (l *Loader) OpenExistingWallet(pubPassphrase []byte, canConsolePrompt bool)
 		return LoaderLoaded, ErrLoaded
 	}
 
-	// Ensure that the network directory exists.
-	if err := checkCreateDir(l.dbDirPath); err != nil {
-		return l.state, err
-	}
-
-	// Open the database using the boltdb backend.
-	dbPath := filepath.Join(l.dbDirPath, walletDbName)
-	db, err := walletdb.Open("bdb", dbPath)
-	if err != nil {
-		log.Errorf("Failed to open database: %v", err)
-		return l.state, err
-	}
-
 	var cbs *waddrmgr.OpenCallbacks
 	if canConsolePrompt {
 		cbs = &waddrmgr.OpenCallbacks{
@@ -175,20 +136,13 @@ func (l *Loader) OpenExistingWallet(pubPassphrase []byte, canConsolePrompt bool)
 			ObtainPrivatePass: noConsole,
 		}
 	}
-	w, err := Open(db, pubPassphrase, cbs, l.chainParams)
+	w, err := Open(l.db, pubPassphrase, cbs, l.chainParams)
 	if err != nil {
 		return l.state, err
 	}
 	l.wallet = w
 	l.state = LoaderLoaded
 	return LoaderLoaded, nil
-}
-
-// WalletExists returns whether a file exists at the loader's database path.
-// This may return an error for unexpected I/O failures.
-func (l *Loader) WalletExists() (bool, error) {
-	dbPath := filepath.Join(l.dbDirPath, walletDbName)
-	return fileExists(dbPath)
 }
 
 // LoadedWallet returns the loaded wallet, if any, and an error if no
@@ -256,7 +210,7 @@ func (l *Loader) Session(client chain.Client, lifecycle func(*Session) error) (L
 
 		// close the channel again in case anything went wrong when
 		// we tried to sync the wallet. In other words, if an error
-		// was returned by synchronieRPC before before lifecycle even
+		// was returned by synchronizeChain before before lifecycle even
 		// started running.
 		close(connected)
 	}()
@@ -290,15 +244,4 @@ func (l *Loader) UnloadWallet() error {
 	l.wallet = nil
 	l.db = nil
 	return nil
-}
-
-func fileExists(filePath string) (bool, error) {
-	_, err := os.Stat(filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
 }

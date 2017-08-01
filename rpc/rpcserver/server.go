@@ -781,8 +781,8 @@ func (s *loaderServer) OpenWallet(ctx context.Context, req *pb.OpenWalletRequest
 	}
 
 	/*s.mu.Lock()
-	if s.rpcClient != nil {
-		wallet.SynchronizeRPC(s.rpcClient)
+	if s.client != nil {
+		wallet.Synchronize(s.client)
 	}
 	s.mu.Unlock()*/
 
@@ -792,11 +792,8 @@ func (s *loaderServer) OpenWallet(ctx context.Context, req *pb.OpenWalletRequest
 func (s *loaderServer) WalletExists(ctx context.Context, req *pb.WalletExistsRequest) (
 	*pb.WalletExistsResponse, error) {
 
-	exists, err := s.loader.WalletExists()
-	if err != nil {
-		return nil, translateError(err)
-	}
-	return &pb.WalletExistsResponse{Exists: exists}, nil
+	//exists, _ := fileExists(filepath.Join(dbDirPath, walletDbName))
+	return &pb.WalletExistsResponse{Exists: true}, nil
 }
 
 func (s *loaderServer) CloseWallet(ctx context.Context, req *pb.CloseWalletRequest) (

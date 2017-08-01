@@ -100,7 +100,18 @@ func convertLegacyKeystore(legacyKeyStore *keystore.Store, manager *waddrmgr.Man
 // provided path.
 func createWallet(cfg *config) error {
 	dbDir := networkDir(cfg.AppDataDir.Value, activeNet.Params)
-	loader := wallet.NewLoader(activeNet.Params, dbDir)
+
+	var db walletdb.DB
+	var err error
+	if cfg.Create {
+		db, err = CreateDB(dbDir)
+	} else {
+		db, err = LoadDB(dbDir)
+	}
+	if err != nil {
+		return err
+	}
+	loader := wallet.NewLoader(activeNet.Params, db)
 
 	// When there is a legacy keystore, open it now to ensure any errors
 	// don't end up exiting the process after the user has spent time
@@ -108,7 +119,7 @@ func createWallet(cfg *config) error {
 	netDir := networkDir(cfg.AppDataDir.Value, activeNet.Params)
 	keystorePath := filepath.Join(netDir, keystore.Filename)
 	var legacyKeyStore *keystore.Store
-	_, err := os.Stat(keystorePath)
+	_, err = os.Stat(keystorePath)
 	if err != nil && !os.IsNotExist(err) {
 		// A stat error not due to a non-existant file should be
 		// returned to the caller.
@@ -197,6 +208,7 @@ func createWallet(cfg *config) error {
 		w.Manager.Lock()
 	}
 
+	w.Manager.Close()
 	fmt.Println("The wallet has been created successfully.")
 	return nil
 }

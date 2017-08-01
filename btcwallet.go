@@ -66,7 +66,12 @@ func walletMain() error {
 	}
 
 	dbDir := networkDir(cfg.AppDataDir.Value, activeNet.Params)
-	loader := wallet.NewLoader(activeNet.Params, dbDir)
+	db, err := LoadDB(dbDir)
+	if err != nil {
+		log.Errorf("Unable to load database: %v", err)
+		return err
+	}
+	loader := wallet.NewLoader(activeNet.Params, db)
 
 	if !cfg.NoInitialLoad {
 		// Load the wallet database.  It must have been created already
