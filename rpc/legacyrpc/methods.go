@@ -89,6 +89,7 @@ var rpcHandlers = map[string]struct {
 	"getbalance":             {handler: getBalance},
 	"getbestblockhash":       {handler: getBestBlockHash},
 	"getblockcount":          {handler: getBlockCount},
+	"getblockhash":           {handlerWithChain: getBlockHash},
 	"getinfo":                {handlerWithChain: getInfo},
 	"getnewaddress":          {handlerWithChain: getNewAddress},
 	"getrawchangeaddress":    {handlerWithChain: getRawChangeAddress},
@@ -510,6 +511,20 @@ func getBestBlockHash(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 func getBlockCount(icmd interface{}, w *wallet.Wallet) (interface{}, error) {
 	blk := w.Manager.SyncedTo()
 	return blk.Height, nil
+}
+
+// getBlockHash handles a getblockhash request by returning the block at
+// a given hegiht
+func getBlockHash(icmd interface{}, s *wallet.Session) (interface{}, error) {
+	z, ok := icmd.(*btcjson.GetBlockHashCmd)
+	if !ok {
+		return nil, errors.New("Invalid request.")
+	}
+	hash, err := s.ChainClient().GetBlockHash(z.Index)
+	if err != nil {
+		return nil, err
+	}
+	return hash.String(), nil
 }
 
 // getInfo handles a getinfo request by returning the a structure containing
