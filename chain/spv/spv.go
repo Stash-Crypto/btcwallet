@@ -73,8 +73,29 @@ type SPV struct {
 }
 
 func initializeHeaders(db walletdb.DB, params *chaincfg.Params) (*Headers, error) {
-	headers, err := NewHeaders(db)
+	var headers *Headers
+	var err error
 
+	// Always try to insert the genesis block no matter what happens.
+	defer func() {
+		_, err := headers.GetBlockAtHeight(0)
+		if err == nil {
+			return
+		}
+
+		var newBest bool
+		if _, err := headers.Height(); err != nil {
+			newBest = true
+		}
+
+		headers.Put(spvwallet.StoredHeader{
+			Header:    params.GenesisBlock.Header,
+			Height:    0,
+			TotalWork: big.NewInt(0),
+		}, newBest)
+	}()
+
+	headers, err = NewHeaders(db)
 	if err == nil {
 		return headers, nil
 	}
@@ -85,13 +106,6 @@ func initializeHeaders(db walletdb.DB, params *chaincfg.Params) (*Headers, error
 	if err != nil {
 		return nil, err
 	}
-
-	// Insert the genesis block.
-	headers.Put(spvwallet.StoredHeader{
-		Header:    params.GenesisBlock.Header,
-		Height:    0,
-		TotalWork: big.NewInt(0),
-	}, true)
 
 	return headers, nil
 }
@@ -335,15 +349,21 @@ func (spv *SPV) SendRawTransaction(tx *wire.MsgTx, alloHighFees bool) (*chainhas
 
 // BlockStamp returns the latest block notified by the client, or an error
 // if the client has been shut down.
-//
-// TODO
 func (spv *SPV) BlockStamp() (*waddrmgr.BlockStamp, error) {
-	/*last := spv.blockchain.GetNPrevBlockHashes(1)
+	sh, err := spv.headers.GetBestHeader()
+	if err != nil {
+		return nil, err
+	}
+
+	hash, err := spv.headers.GetBlockHash(int64(sh.Height))
+	if err != nil {
+		return nil, err
+	}
+
 	return &waddrmgr.BlockStamp{
-		Hash: last[0],
-		Height: ,
-	}, nil*/
-	return nil, ErrNotImplemented
+		Hash:   *hash,
+		Height: int32(sh.Height),
+	}, nil
 }
 
 // GetBlock returns a raw block from the server given its hash.

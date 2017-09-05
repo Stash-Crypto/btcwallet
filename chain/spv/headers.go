@@ -93,7 +93,7 @@ func NewHeaders(db walletdb.DB) (*Headers, error) {
 			sh := best
 			headers := tx.RootBucket().Bucket(spvwallet.BKTHeaders)
 			for {
-				h.chain[sh.Height] = q
+				h.chain[uint32(sh.Height)] = q
 				prev := sh.Header.PrevBlock
 				q = &prev
 
@@ -142,7 +142,7 @@ func reorganizeChain(headers walletdb.Bucket, chain map[uint32]*chainhash.Hash, 
 		}
 	}
 
-	phash, exists := chain[prev.Height]
+	phash, exists := chain[uint32(prev.Height)]
 	if !exists {
 		return errors.New("Hash not found")
 	}
@@ -152,7 +152,7 @@ func reorganizeChain(headers walletdb.Bucket, chain map[uint32]*chainhash.Hash, 
 		return nil
 	}
 
-	chain[prev.Height] = &bh
+	chain[uint32(prev.Height)] = &bh
 
 	return reorganizeChain(headers, chain, prev)
 }
@@ -176,7 +176,7 @@ func (h *Headers) Put(sh spvwallet.StoredHeader, newBestHeader bool) error {
 			return err
 		}
 
-		h.chain[sh.Height] = &hash
+		h.chain[uint32(sh.Height)] = &hash
 
 		if !newBestHeader {
 			return nil
@@ -188,7 +188,7 @@ func (h *Headers) Put(sh spvwallet.StoredHeader, newBestHeader bool) error {
 		if best != nil && best.Header.BlockHash() != sh.Header.PrevBlock {
 			return reorganizeChain(hdrs, h.chain, sh)
 		}
-		h.chain[sh.Height] = &hash
+		h.chain[uint32(sh.Height)] = &hash
 		return nil
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func (h *Headers) GetHeader(hash chainhash.Hash) (spvwallet.StoredHeader, error)
 }
 
 // GetPreviousHeader returns all information about the previous header
-func (h *Headers) GetPreviousHeader(header wire.BlockHeader) (spvwallet.StoredHeader, error) {
+func (h *Headers) GetPreviousHeader(header *wire.BlockHeader) (spvwallet.StoredHeader, error) {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 
@@ -274,7 +274,7 @@ func (h *Headers) Height() (uint32, error) {
 		return 0, errors.New("No best header known")
 	}
 
-	return h.best.Height, nil
+	return uint32(h.best.Height), nil
 }
 
 // GetBlockHash returns the hash of a block at a given height.
@@ -296,14 +296,14 @@ func (h *Headers) GetBlockAtHeight(height uint32) (spvwallet.StoredHeader, error
 
 	hash, exists := h.chain[height]
 	if !exists {
-		return spvwallet.StoredHeader{}, errors.New("Not found")
+		return spvwallet.StoredHeader{}, fmt.Errorf("Block at height %d not found", height)
 	}
 
 	var sh spvwallet.StoredHeader
 	err := h.db.View(func(tx walletdb.Tx) error {
 		b := tx.RootBucket().Bucket(spvwallet.BKTHeaders).Get(hash[:])
 		if b == nil {
-			return errors.New("Not Found")
+			return fmt.Errorf("Block at height %d not Found", height)
 		}
 		var err error
 		sh, err = spvwallet.DeserializeHeader(b)
@@ -351,6 +351,6 @@ func rollback(h *Headers, lastGoodHeight uint32) error {
 	if err != nil {
 		return err
 	}
-	
+
 	return h.Put(sh, true)
 }
