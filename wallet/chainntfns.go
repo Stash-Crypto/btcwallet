@@ -13,7 +13,7 @@ import (
 
 func (s *Session) handleChainNotifications() {
 	defer s.Wallet.wg.Done()
-	
+
 	sync := func(s *Session) {
 		// At the moment there is no recourse if the rescan fails for
 		// some reason, however, the wallet will not be marked synced

@@ -203,7 +203,7 @@ out:
 			break out
 		}
 	}
-	
+
 	s.Wallet.wg.Done()
 }
 

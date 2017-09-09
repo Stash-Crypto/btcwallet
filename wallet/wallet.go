@@ -28,7 +28,6 @@ import (
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/btcwallet/chain"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/btcsuite/btcwallet/wallet/txauthor"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/btcsuite/btcwallet/walletdb"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -89,9 +88,6 @@ type Wallet struct {
 	rescanNotifications chan interface{} // From chain server
 	rescanProgress      chan *RescanProgressMsg
 	rescanFinished      chan *RescanFinishedMsg
-
-	// Channel for transaction creation requests.
-	createTxRequests chan createTxRequest
 
 	// Channels for the manager locker.
 	unlockRequests     chan unlockRequest
@@ -155,9 +151,8 @@ func (w *Wallet) synchronizeChain(chainClient chain.Client,
 	// separately from the wallet (use wallet mutator functions to
 	// make changes from the RPC client) and not have to stop and
 	// restart them each time the client disconnects and reconnets.
-	w.wg.Add(5)
+	w.wg.Add(4)
 	go s.handleChainNotifications()
-	go s.txCreator()
 	go s.rescanBatchHandler()
 	go s.rescanProgressHandler()
 	go s.rescanRPCHandler()
@@ -212,26 +207,6 @@ func (w *Wallet) activeData() ([]btcutil.Address, []wtxmgr.Credit, error) {
 	}
 	unspent, err := w.TxStore.UnspentOutputs()
 	return addrs, unspent, err
-}
-
-// CreateSimpleTx creates a new signed transaction spending unspent P2PKH
-// outputs with at laest minconf confirmations spending to any number of
-// address/amount pairs.  Change and an appropriate transaction fee are
-// automatically included, if necessary.  All transaction creation through this
-// function is serialized to prevent the creation of many transactions which
-// spend the same outputs.
-func (w *Wallet) CreateSimpleTx(account uint32, outputs []*wire.TxOut,
-	minconf int32) (*txauthor.AuthoredTx, error) {
-
-	req := createTxRequest{
-		account: account,
-		outputs: outputs,
-		minconf: minconf,
-		resp:    make(chan createTxResponse),
-	}
-	w.createTxRequests <- req
-	resp := <-req.resp
-	return resp.tx, resp.err
 }
 
 type (
@@ -1645,7 +1620,6 @@ func Open(db walletdb.DB, pubPass []byte, cbs *waddrmgr.OpenCallbacks, params *c
 		rescanNotifications: make(chan interface{}),
 		rescanProgress:      make(chan *RescanProgressMsg),
 		rescanFinished:      make(chan *RescanFinishedMsg),
-		createTxRequests:    make(chan createTxRequest),
 		unlockRequests:      make(chan unlockRequest),
 		lockRequests:        make(chan struct{}),
 		holdUnlockRequests:  make(chan chan HeldUnlock),

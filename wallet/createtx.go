@@ -91,21 +91,7 @@ func (s secretSource) GetScript(addr btcutil.Address) ([]byte, error) {
 	return msa.Script()
 }
 
-// txToOutputs creates a signed transaction which includes each output from
-// outputs.  Previous outputs to reedeem are chosen from the passed account's
-// UTXO set and minconf policy. An additional output may be added to return
-// change to the wallet.  An appropriate fee is included based on the wallet's
-// current relay fee.  The wallet must be unlocked to create the transaction.
-func (s *Session) txToOutputs(outputs []*wire.TxOut, account uint32, minconf int32) (*txauthor.AuthoredTx, error) {
-	// Address manager must be unlocked to compose transaction.  Grab
-	// the unlock if possible (to prevent future unlocks), or return the
-	// error if already locked.
-	heldUnlock, err := s.Wallet.HoldUnlock()
-	if err != nil {
-		return nil, err
-	}
-	defer heldUnlock.Release()
-
+func (s *Session) inputSource(account uint32, minconf int32) (txauthor.InputSource, error) {
 	// Get current block's height and hash.
 	bs, err := s.chainClient.BlockStamp()
 	if err != nil {
@@ -117,11 +103,21 @@ func (s *Session) txToOutputs(outputs []*wire.TxOut, account uint32, minconf int
 		return nil, err
 	}
 
-	inputSource := makeInputSource(eligible)
+	return makeInputSource(eligible), nil
+}
+
+// createSimpleTx creates a signed transaction which includes each output from
+// outputs.  Previous outputs to reedeem are chosen from the passed account's
+// UTXO set and minconf policy. An additional output may be added to return
+// change to the wallet.  An appropriate fee is included based on the wallet's
+// current relay fee.  The wallet must be unlocked to create the transaction.
+func (s *Session) createSimpleTx(inputSource txauthor.InputSource, outputs []*wire.TxOut,
+	account uint32) (*txauthor.AuthoredTx, error) {
 	changeSource := func() ([]byte, error) {
 		// Derive the change output script.  As a hack to allow spending from
 		// the imported account, change addresses are created from account 0.
 		var changeAddr btcutil.Address
+		var err error
 		if account == waddrmgr.ImportedAddrAccount {
 			changeAddr, err = s.NewChangeAddress(0)
 		} else {
@@ -164,7 +160,8 @@ func (s *Session) txToOutputs(outputs []*wire.TxOut, account uint32, minconf int
 	return tx, nil
 }
 
-func (w *Wallet) findEligibleOutputs(account uint32, minconf int32, bs *waddrmgr.BlockStamp) ([]wtxmgr.Credit, error) {
+func (w *Wallet) findEligibleOutputs(account uint32, minconf int32,
+	bs *waddrmgr.BlockStamp) ([]wtxmgr.Credit, error) {
 	unspent, err := w.TxStore.UnspentOutputs()
 	if err != nil {
 		return nil, err

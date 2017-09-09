@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/chain"
@@ -23,6 +24,7 @@ import (
 type Session struct {
 	Wallet *Wallet
 	quit   chan struct{}
+	mtx    sync.Mutex
 
 	chainClient        chain.Client
 	chainClientSynced  bool
@@ -175,43 +177,109 @@ func (s *Session) syncWithChain() error {
 	return s.Rescan(addrs, unspent)
 }
 
-type (
-	createTxRequest struct {
-		account uint32
-		outputs []*wire.TxOut
-		minconf int32
-		resp    chan createTxResponse
-	}
-	createTxResponse struct {
-		tx  *txauthor.AuthoredTx
-		err error
-	}
-)
+func (s *Session) fundTransaction(
+	account uint32,
+	targetAmount int64,
+	requiredConfirmations int32,
+	includeImmatureCoinbases bool,
+	includeChangeScript bool,
+	pred func(wtxmgr.Credit) bool) ([]wtxmgr.Credit, btcutil.Amount, []byte, error) {
 
-// txCreator is responsible for the input selection and creation of
-// transactions.  These functions are the responsibility of this method
-// (designed to be run as its own goroutine) since input selection must be
-// serialized, or else it is possible to create double spends by choosing the
-// same inputs for multiple transactions.  Along with input selection, this
-// method is also responsible for the signing of transactions, since we don't
-// want to end up in a situation where we run out of inputs as multiple
-// transactions are being created.  In this situation, it would then be possible
-// for both requests, rather than just one, to fail due to not enough available
-// inputs.
-func (s *Session) txCreator() {
-out:
-	for {
-		select {
-		case txr := <-s.Wallet.createTxRequests:
-			tx, err := s.txToOutputs(txr.outputs, txr.account, txr.minconf)
-			txr.resp <- createTxResponse{tx, err}
+	// TODO: A predicate function for selecting outputs should be created
+	// and passed to a database view of just a particular account's utxos to
+	// prevent reading every unspent transaction output from every account
+	// into memory at once.
 
-		case <-s.quit:
-			break out
+	syncBlock := s.Wallet.Manager.SyncedTo()
+
+	outputs, err := s.Wallet.TxStore.UnspentOutputs()
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	selectedOutputs := make([]wtxmgr.Credit, 0, len(outputs))
+	var totalAmount btcutil.Amount
+	for i := range outputs {
+		output := outputs[i]
+
+		if !confirmed(requiredConfirmations, output.Height, syncBlock.Height) {
+			continue
+		}
+		target := int32(s.Wallet.ChainParams().CoinbaseMaturity)
+		if !includeImmatureCoinbases && output.FromCoinBase &&
+			!confirmed(target, output.Height, syncBlock.Height) {
+			continue
+		}
+
+		_, addrs, _, err := txscript.ExtractPkScriptAddrs(
+			output.PkScript, s.Wallet.ChainParams())
+		if err != nil || len(addrs) == 0 {
+			// Cannot determine which account this belongs to
+			// without a valid address.  Fix this by saving
+			// outputs per account (per-account wtxmgr).
+			continue
+		}
+		outputAcct, err := s.Wallet.Manager.AddrAccount(addrs[0])
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		if outputAcct != account {
+			continue
+		}
+
+		if pred != nil && !pred(output) {
+			continue
+		}
+
+		selectedOutputs = append(selectedOutputs, output)
+		totalAmount += output.Amount
+
+		if targetAmount != 0 && totalAmount > btcutil.Amount(targetAmount) {
+			break
+		}
+
+	}
+
+	var changeScript []byte
+	if includeChangeScript && totalAmount > btcutil.Amount(targetAmount) {
+		changeAddr, err := s.NewChangeAddress(account)
+		if err != nil {
+			return nil, 0, nil, err
+		}
+		changeScript, err = txscript.PayToAddrScript(changeAddr)
+		if err != nil {
+			return nil, 0, nil, err
 		}
 	}
 
-	s.Wallet.wg.Done()
+	return selectedOutputs, totalAmount, changeScript, nil
+}
+
+// CreateSimpleTx creates a new signed transaction spending unspent P2PKH
+// outputs with at laest minconf confirmations spending to any number of
+// address/amount pairs.  Change and an appropriate transaction fee are
+// automatically included, if necessary.  All transaction creation through this
+// function is serialized to prevent the creation of many transactions which
+// spend the same outputs.
+func (s *Session) CreateSimpleTx(account uint32, outputs []*wire.TxOut, minconf int32) (*txauthor.AuthoredTx, error) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	// Address manager must be unlocked to compose transaction.  Grab
+	// the unlock if possible (to prevent future unlocks), or return the
+	// error if already locked.
+	heldUnlock, err := s.Wallet.HoldUnlock()
+	if err != nil {
+		return nil, err
+	}
+	defer heldUnlock.Release()
+
+	source, err := s.inputSource(account, minconf)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.createSimpleTx(source, outputs, account)
 }
 
 // GetTransactions returns transaction results between a starting and ending
@@ -418,7 +486,7 @@ func (s *Session) SendOutputs(outputs []*wire.TxOut, account uint32,
 
 	// Create transaction, replying with an error if the creation
 	// was not successful.
-	createdTx, err := s.Wallet.CreateSimpleTx(account, outputs, minconf)
+	createdTx, err := s.CreateSimpleTx(account, outputs, minconf)
 	if err != nil {
 		return nil, err
 	}
