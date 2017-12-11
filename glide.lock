@@ -98,7 +98,7 @@ imports:
 - package: github.com/OpenBazaar/spvwallet
   version: cc6db98ab2fcb9f4fe9cfcdeb9c9a1050945f26c
 - package: github.com/OpenBazaar/wallet-interface
-  version: e5c0d6fdc21b50351c2633a4c0900601ef82e0d6
+  version: 599ef28caef087c5732f9d046468a46f3a513aa9
 testImports:
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
