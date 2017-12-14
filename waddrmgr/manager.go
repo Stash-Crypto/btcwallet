@@ -80,7 +80,7 @@ const (
 	// saltSize is the number of bytes of the salt used when hashing
 	// private passphrases.
 	saltSize = 32
-	
+
 	// InsecurePubPassphrase is the default outer encryption passphrase used
 	// for public data (everything but private keys).  Using a non-default
 	// public passphrase can prevent an attacker without the public
@@ -91,7 +91,7 @@ const (
 	// data in the waddrmgr namespace.  Transactions are not yet encrypted.
 	InsecurePubPassphrase = "public"
 
-	// InsecurePrivPassphrase is used if no private passphrase is given. 
+	// InsecurePrivPassphrase is used if no private passphrase is given.
 	// For use with option 'nopass'.
 	InsecurePrivPassphrase = "priv"
 )
@@ -806,7 +806,7 @@ func (m *Manager) ChangePassphrase(oldPass, newPass []byte, private bool, config
 
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-	
+
 	// Either could be nil to represent a state without secure encryption.
 	var oldPassphrase, newPassphrase []byte
 	if oldPass == nil {
@@ -935,7 +935,7 @@ func (m *Manager) ChangePassphrase(oldPass, newPass []byte, private bool, config
 		m.masterKeyPriv = newMasterKey
 		m.privPassphraseSalt = passphraseSalt
 		m.hashedPrivPassphrase = hashedPassphrase
-		
+
 		if newPass == nil {
 			m.insecure = true
 		} else {
@@ -1317,7 +1317,7 @@ func (m *Manager) IsLocked() bool {
 //
 // This function will return an error if invoked on a watching-only address
 // manager.
-func (m *Manager) Lock() error {	
+func (m *Manager) Lock() error {
 	// A watching-only address manager can't be locked.
 	if m.watchingOnly {
 		return managerError(ErrWatchingOnly, errWatchingOnly, nil)
@@ -1327,11 +1327,11 @@ func (m *Manager) Lock() error {
 	if m.locked {
 		return managerError(ErrLocked, errLocked, nil)
 	}
-	
+
 	// An insecure address manager can't be locked either. There is no need
 	// to return an error because for an insecure manager, a locked state
 	// that is not being used for anything is logically the same as an unlocked
-	// state. 
+	// state.
 	if m.insecure {
 		return nil
 	}
@@ -1374,7 +1374,7 @@ func (m *Manager) LookupAccount(name string) (uint32, error) {
 //
 // This function will return an error if invoked on a watching-only address
 // manager.
-func (m *Manager) Unlock(passphrase []byte) error {	
+func (m *Manager) Unlock(passphrase []byte) error {
 	// A watching-only address manager can't be unlocked.
 	if m.watchingOnly {
 		return managerError(ErrWatchingOnly, errWatchingOnly, nil)
@@ -1382,7 +1382,7 @@ func (m *Manager) Unlock(passphrase []byte) error {
 
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
-	
+
 	// if passphrase is nil, try with the insecure passphrase.
 	if passphrase == nil {
 		passphrase = []byte(InsecurePrivPassphrase)
@@ -2292,12 +2292,12 @@ func loadManager(namespace walletdb.Namespace, pubPassphrase []byte, chainParams
 		cryptoKeyPub, cryptoKeyPrivEnc, cryptoKeyScriptEnc, syncInfo,
 		privPassphraseSalt)
 	mgr.watchingOnly = watchingOnly
-	
+
 	// Attempt to unlock the wallet with the insecure passphrase.
 	if !watchingOnly && mgr.Unlock(nil) == nil {
 		mgr.insecure = true
 	}
-	
+
 	return mgr, nil
 }
 
@@ -2440,11 +2440,11 @@ func Create(namespace walletdb.Namespace, seed, pubPassphrase, privPassphrase []
 	var masterKeyPriv *snacl.SecretKey
 	if privPassphrase == nil {
 		insecurePass := []byte(InsecurePrivPassphrase)
-		masterKeyPriv, err = newSecretKey(&insecurePass, config)	
+		masterKeyPriv, err = newSecretKey(&insecurePass, config)
 	} else {
 		masterKeyPriv, err = newSecretKey(&privPassphrase, config)
 	}
-	
+
 	if err != nil {
 		str := "failed to master private key"
 		return managerError(ErrCrypto, str, err)
@@ -2456,7 +2456,7 @@ func Create(namespace walletdb.Namespace, seed, pubPassphrase, privPassphrase []
 	// is already unlocked.
 	var privPassphraseSalt [saltSize]byte
 	_, err = rand.Read(privPassphraseSalt[:])
-	
+
 	if err != nil {
 		str := "failed to read random source for passphrase salt"
 		return managerError(ErrCrypto, str, err)

@@ -7,8 +7,8 @@ package wtxmgr
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcwallet/walletdb"
 )
@@ -161,7 +161,7 @@ func (s *Store) unminedTxDetails(ns walletdb.Bucket, txHash *chainhash.Hash, v [
 	if it.err != nil {
 		return nil, it.err
 	}
-	
+
 	details.Debits, err = s.unregisteredTxDebits(ns, &details.MsgTx)
 	if err != nil {
 		return nil, err
@@ -270,7 +270,7 @@ func (s *Store) UniqueTxDetails(txHash *chainhash.Hash, block *Block) (*TxDetail
 }
 
 // UnregisteredTxDebits returns a list of DebitRecords for a tx
-// that has not been inserted into the database. 
+// that has not been inserted into the database.
 func (s *Store) UnregisteredTxDebits(tx *wire.MsgTx) ([]DebitRecord, error) {
 	var debits []DebitRecord
 	err := scopedView(s.namespace, func(ns walletdb.Bucket) error {

@@ -61,7 +61,7 @@ type Server struct {
 	httpServer    http.Server
 	session       *wallet.Session
 	walletLoader  *wallet.Loader
-	rpcClient   *rpc.RPCClient
+	rpcClient     *rpc.RPCClient
 	handlerLookup func(string) (requestHandler, bool)
 	handlerMu     sync.Mutex
 
@@ -99,7 +99,7 @@ func NewServer(opts *Options, walletLoader *wallet.Loader, listeners []net.Liste
 			// handshake within the allowed timeframe.
 			ReadTimeout: time.Second * rpcAuthTimeoutSeconds,
 		},
-		rpcClient: rpcClient, 
+		rpcClient:           rpcClient,
 		walletLoader:        walletLoader,
 		maxPostClients:      opts.MaxPOSTClients,
 		maxWebsocketClients: opts.MaxWebsocketClients,
@@ -210,8 +210,8 @@ func (s *Server) RegisterWallet(session *wallet.Session) {
 // account files.  This blocks until shutdown completes.
 func (s *Server) Stop() {
 	s.quitMtx.Lock()
-	
-	// If the Server has already been stopped, return right away. 
+
+	// If the Server has already been stopped, return right away.
 	select {
 	case <-s.quit:
 		s.quitMtx.Unlock()

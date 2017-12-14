@@ -35,12 +35,12 @@ const (
 )
 
 var (
-	btcdDefaultCAFile  = filepath.Join(btcutil.AppDataDir("btcd", false), "rpc.cert")
-	defaultAppDataDir  = btcutil.AppDataDir("btcwallet", false)
-	defaultConfigFile  = filepath.Join(defaultAppDataDir, defaultConfigFilename)
-	defaultRPCKeyFile  = filepath.Join(defaultAppDataDir, "rpc.key")
-	defaultRPCCertFile = filepath.Join(defaultAppDataDir, "rpc.cert")
-	defaultLogDir      = filepath.Join(defaultAppDataDir, defaultLogDirname)
+	btcdDefaultCAFile     = filepath.Join(btcutil.AppDataDir("btcd", false), "rpc.cert")
+	defaultAppDataDir     = btcutil.AppDataDir("btcwallet", false)
+	defaultConfigFile     = filepath.Join(defaultAppDataDir, defaultConfigFilename)
+	defaultRPCKeyFile     = filepath.Join(defaultAppDataDir, "rpc.key")
+	defaultRPCCertFile    = filepath.Join(defaultAppDataDir, "rpc.cert")
+	defaultLogDir         = filepath.Join(defaultAppDataDir, defaultLogDirname)
 	defaultChainQueryMode = "rpc"
 )
 
@@ -263,7 +263,7 @@ func loadConfig() (*config, []string, error) {
 		LegacyRPCMaxClients:    defaultRPCMaxClients,
 		LegacyRPCMaxWebsockets: defaultRPCMaxWebsockets,
 		DataDir:                cfgutil.NewExplicitString(defaultAppDataDir),
-		ChainQueryMode:         defaultChainQueryMode, 
+		ChainQueryMode:         defaultChainQueryMode,
 	}
 
 	// Pre-parse the command line options to see if an alternative config
