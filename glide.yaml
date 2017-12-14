@@ -12,7 +12,6 @@ import:
   - txscript
   - wire
 - package: github.com/btcsuite/btclog
-- package: github.com/btcsuite/btcrpcclient
 - package: github.com/btcsuite/btcutil
   subpackages:
   - hdkeychain
